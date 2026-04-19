@@ -9,10 +9,7 @@ ddgs
 tiktoken
 fastapi
 reportlab
-websockets
-setuptools
 requests
-soundfile
 httpx
 rich
 click

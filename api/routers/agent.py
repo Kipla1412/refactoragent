@@ -16,20 +16,21 @@ class ChatRequest(BaseModel):
 
 
 @router.post(
-    "/consultagent",
-    summary="Agent Chat Interface",
+    "/doctoragent",
+    summary="Doctor's Assistant - Medical Question Recommendations",
     description="""
-Stream responses from the AI agent.
+Stream intelligent medical question recommendations from the AI doctor's assistant.
 
-This endpoint processes a user message and streams the agent's responses 
-as incremental events. The agent may call tools, generate text tokens, 
-and produce structured outputs.
+This endpoint processes user medical queries and provides targeted follow-up questions
+that help doctors gather essential patient information for better medical care.
 
 Features:
-- Real-time streaming response
+- Medical question recommendations based on symptoms
+- Targeted follow-up questions for doctors to use
 - Session-based conversation context
-- Tool execution support
+- Real-time streaming response
 - Authenticated user isolation
+- Focus on medical information gathering only
 
 Authentication:
 Requires a valid authenticated user session.
@@ -73,67 +74,3 @@ async def chat(req: ChatRequest, request: Request):
         media_type="application/json; charset=utf-8",
         headers={"X-Session-ID": session_id}
     )
-
-# from fastapi import APIRouter, Request
-# from pydantic import BaseModel
-# from fastapi.responses import StreamingResponse
-# import json
-# from agent.agent import Agent
-# from config.config import Config
-
-# router = APIRouter(prefix="/agent")
-
-
-# class ChatRequest(BaseModel):
-#     message: str
-#     session_id: str | None = None
-
-
-# @router.post("/chat")
-# async def chat(req: ChatRequest, request: Request):
-
-#     sessions = request.app.state.sessions
-#     config = request.app.state.config
-
-#     if req.session_id not in sessions:
-#         # First time this user has messaged? Give them a private agent.
-#         agent = Agent(Config())
-#         await agent.__aenter__()
-#         sessions[req.session_id] = agent
-    
-#     # Use their private agent
-#     agent = sessions[req.session_id]
-
-#     async def event_stream():
-
-#         async for event in agent.run(req.message):
-
-#             yield json.dumps({
-#                 "type": event.type.value if hasattr(event.type, "value") else str(event.type),
-#                 "data": event.data
-#             }) + "\n"
-
-#     return StreamingResponse(event_stream(), media_type="application/json; charset=utf-8")
-
-# @router.post("/approve")
-# async def approve(data: dict, request: Request):
-
-#     approval_id = data["approval_id"]
-#     approved = data["approved"]
-
-#     agent = request.app.state.agent
-#     pending = agent.session.pending_approvals
-
-#     if approval_id not in pending:
-#         return {"status": "not_found", "approval_id": approval_id}
-    
-#     future = pending[approval_id]
-
-#     if not future.done():
-#         future.set_result(approved)
-
-#     return {
-#         "status": "ok",
-#         "approval_id": approval_id,
-#         "approved": approved
-#     }
