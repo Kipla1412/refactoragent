@@ -1,19 +1,16 @@
 from fastapi import APIRouter, Request, Depends
 from api.auth import get_current_user, require_permission
-from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
-import json
-import uuid
-
 from agent.agent import Agent
+from config.config import Config
+from pydantic import BaseModel
+from typing import List
+
 
 router = APIRouter(prefix="/agent")
 
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str | None = None
-
+class ConversationRequest(BaseModel):
+    conversation: List[str]
 
 @router.post(
     "/doctoragent",
@@ -28,9 +25,6 @@ Features:
 - Medical question recommendations based on symptoms
 - Targeted follow-up questions for doctors to use
 - Session-based conversation context
-- Real-time streaming response
-- Authenticated user isolation
-- Focus on medical information gathering only
 
 Authentication:
 Requires a valid authenticated user session.
@@ -40,37 +34,54 @@ Permission Required:
 """,
     dependencies=[Depends(require_permission("consultagent", "chat"))]
 )
-async def chat(req: ChatRequest, request: Request):
+async def recommend_questions_api(data: ConversationRequest):
 
-    sessions = request.app.state.sessions
-    config = request.app.state.config
+    if not data.conversation:
+        return {"questions": []}
 
-    user = request.state.user
-    # Generate session id if missing
-    user_id = user.get("sub")
-    session_id = req.session_id or str(uuid.uuid4())
+    conversation = data.conversation
 
-    
-    if user_id not in sessions:
+    config = Config()
 
-        agent = Agent(config)
-        await agent.__aenter__()
+    try:
+        async with Agent(config) as agent:
+            result = await agent.recommend_questions(conversation)
+        return result
 
-        sessions[user_id] = agent
+    except Exception as e:
+        return {"error": str(e)}
 
-    agent = sessions[user_id]
+@router.post(
+    "/doctor-report",
+    summary="Generate Professional Doctor Report",
+    description="""
+Generate structured clinical notes (SOAP format) from full conversation.
 
-    async def event_stream():
+- Used at end of consultation
+- Returns professional medical documentation
+- No diagnosis or medication included
 
-        async for event in agent.run(req.message):
+Authentication:
+Requires a valid authenticated user session.
 
-            yield json.dumps({
-                "type": event.type.value if hasattr(event.type, "value") else str(event.type),
-                "data": event.data
-            }) + "\n"
+Permission Required:
+`consultagent:chat`
+""",
+    dependencies=[Depends(require_permission("consultagent", "chat"))]
+)
+async def generate_report_api(data: ConversationRequest):
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="application/json; charset=utf-8",
-        headers={"X-Session-ID": session_id}
-    )
+    # validation
+    if not data.conversation:
+        return {"error": "Conversation is empty"}
+
+    config = Config()
+
+    try:
+        async with Agent(config) as agent:
+            result = await agent.generate_report(data.conversation)
+
+        return result
+
+    except Exception as e:
+        return {"error": str(e)}
