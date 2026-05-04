@@ -9,6 +9,7 @@ from agent.persistence import PersistenceManager, SessionSnapshot
 from agent.session import Session
 from config.config import ApprovalPolicy, Config
 from config.loader import load_config
+from prompts.system import get_system_prompt
 from ui.tui import TUI, get_console
 
 console = get_console()
@@ -21,7 +22,8 @@ class CLI:
         self.tui = TUI(config, console)
 
     async def run_single(self, message: str) -> str | None:
-        async with Agent(self.config) as agent:
+        system_prompt = get_system_prompt(self.config)
+        async with Agent(self.config, system_prompt) as agent:
             self.agent = agent
             return await self._process_message(message)
 
@@ -35,8 +37,10 @@ class CLI:
             ],
         )
 
+        system_prompt = get_system_prompt(self.config)
         async with Agent(
             self.config,
+            system_prompt,
             confirmation_callback=self.tui.handle_confirmation,
         ) as agent:
             self.agent = agent

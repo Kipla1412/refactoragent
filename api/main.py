@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from agent.agent import Agent
 from config.config import Config
 from api.routers.agent import router as agent_router
+from api.routers.consult import router as consult_router
+
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import decode_token
@@ -25,41 +27,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Alees AI Agent Runtime")
 
-    # Load configuration
     config = Config()
 
-    # Create agent runtime
-    agent = Agent(config)
-   
-    try:
-        # 3. Initialize the global session/client
-        await agent.session.initialize()
-        
-        # We link the session here so that any route using 'get_agent' 
-        for tool in agent.session.tool_registry.get_tools():
-            if hasattr(tool, 'session'):
-                tool.session = agent.session
-        
-        # 4. Store inside FastAPI app state for global access
-        app.state.sessions = {}
-        app.state.config = config
-        app.state.agent = agent
-        # app.state.pending_approvals = agent.session.pending_approvals
-        logger.info("Agent initialized and Tools linked successfully")
-        # logger.info(f"Approval policy: {config.approval}")
-        
-    except Exception as e:
-        logger.error(f"Critical Failure during Agent Startup: {e}")
-        raise e
+    # store only config
+    app.state.config = config
+
+    logger.info("System initialized successfully")
 
     yield
 
-    logger.info("Shutting down agent runtime")
-
-    # Optional cleanup
-    if agent.session and agent.session.client:
-        await agent.session.client.close()
-
+    logger.info("Shutting down runtime")
 
 # Create FastAPI application
 def create_app():
@@ -82,7 +59,7 @@ def create_app():
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
 
-        public_paths = ["/docs", "/openapi.json"]
+        public_paths = ["/docs", "/openapi.json", "/health"]
 
         if request.url.path.startswith(tuple(public_paths)):
             return await call_next(request)
@@ -116,14 +93,20 @@ def create_app():
         return response
 
     app.include_router(agent_router, prefix="/api")
-    
+    app.include_router(consult_router, prefix="/api")
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
     return app
 
 
 # Global app instance
 app = create_app()
 
-
+def get_config(request: Request) -> Config:
+    return request.app.state.config
 # Helper function to get agent
-def get_agent(request: Request) -> Agent:
-    return request.app.state.agent
+# def get_agent(request: Request) -> Agent:
+#     return request.app.state.agent

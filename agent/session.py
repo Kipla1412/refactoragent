@@ -1,6 +1,5 @@
 from datetime import datetime
 import json
-from typing import Any
 import uuid
 from contextlib import asynccontextmanager
 from client.llm_client import LLMClient
@@ -49,6 +48,9 @@ class Session:
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.turn_count = 0
+        self.agent_name = None
+
+        self.metadata: dict[str, any] = {}
 
     async def _request_user_confirmation(self, confirmation):
 
@@ -95,7 +97,7 @@ class Session:
         
         print(f"DEBUG: Could not find pending approval for ID: {approval_id}")
         return False
-
+    
     @property
     def turn_count(self) -> int:
         return getattr(self, '_turn_count', 0)
@@ -125,6 +127,9 @@ class Session:
         # Set session ID for trace tracking
         if self.mlflow_tracker:
             self.mlflow_tracker.current_session_id = self.session_id
+
+    def set_tools(self, tools: list):
+        self.tool_registry.set_tools(tools)
 
     def _load_memory(self) -> str | None:
         data_dir = get_data_dir()
@@ -185,11 +190,13 @@ class Session:
         
         try:
             self.mlflow_run = self.mlflow_tracker.start_run(
-                run_name=f"agent-session-{self.session_id}"
+                run_name=f"{self.agent_name or 'agent'}-{self.session_id}"
             )
             
             self.mlflow_tracker.set_tag("session_id", self.session_id)
             self.mlflow_tracker.set_tag("user_message", message[:200])
+            self.mlflow_tracker.set_tag("agent_name", self.agent_name or "unknown")
+
         except Exception as e:
             print(f"Warning: Failed to start MLflow run: {e}")
             self.mlflow_run = None
@@ -204,3 +211,9 @@ class Session:
     def cleanup(self):
         """Cleanup session resources."""
         self.end_mlflow_run()
+
+    def reset(self):
+        if self.context_manager:
+            self.context_manager.clear() 
+            # self.context_manager.set_system_prompt(None)   # or reset()
+            self.turn_count = 0

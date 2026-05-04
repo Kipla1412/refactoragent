@@ -42,8 +42,10 @@ class ContextManager:
         config: Config,
         user_memory: str | None,
         tools: list[Tool] | None,
-    ) -> None:
-        self._system_prompt = get_system_prompt(config, user_memory, tools)
+    ) -> None: 
+    
+        self._default_system_prompt = get_system_prompt(config, "", user_memory, tools)
+        self._system_prompt = None
         self.config = config
         self._model_name = self.config.model_name
         self._messages: list[MessageItem] = []
@@ -208,5 +210,9 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
 
         return pruned_count
 
+    def set_system_prompt(self, prompt: str) -> None:
+        self._system_prompt = prompt
+
     def clear(self) -> None:
         self._messages = []
+        self._latest_usage = TokenUsage()

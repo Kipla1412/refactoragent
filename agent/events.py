@@ -1,6 +1,6 @@
 from __future__ import annotations
 from enum import Enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any
 
 from client.response import TokenUsage
@@ -26,6 +26,14 @@ class AgentEventType(str, Enum):
 
     #approval
     APPROVAL_REQUEST = "approval_request"
+    VOICE_OUTPUT = "voice_output"
+
+class AgentType(str, Enum):
+   DOC = "doc"
+   SOAP = "soap"
+   ASSESSMENT = "assessment"
+   CONSULT = "consult"
+   INTAKE = "intake"
 
 @dataclass
 class AgentEvent:
@@ -64,43 +72,51 @@ class AgentEvent:
             data={"error": error, "details": details or {}},
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Converts the dataclass to a JSON-serializable dictionary.
+        """
+        # asdict() handles nested dataclasses like TokenUsage automatically
+        return asdict(self)
+
     @classmethod
-    def text_delta(cls, content: str) -> AgentEvent:
+    def text_delta(cls, content: str, agent: AgentType) -> AgentEvent:
         return cls(
             type=AgentEventType.TEXT_DELTA,
-            data={"content": content},
+            data={"content": content, "agent": agent},
         )
 
     @classmethod
-    def text_complete(cls, content: str) -> AgentEvent:
+    def text_complete(cls, content: str, agent: AgentType) -> AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
-            data={"content": content},
+            data={"content": content, "agent": agent},
         )
 
     @classmethod
-    def voice_output(cls, audio: bytes, sample_rate: int) -> AgentEvent:
+    def voice_output(cls, audio: bytes, sample_rate: int, agent: AgentType) -> AgentEvent:
         return cls(
             type=AgentEventType.VOICE_OUTPUT,
-            data={"audio": audio, "sample_rate": sample_rate},
+            data={"audio": audio, "sample_rate": sample_rate, "agent": agent},
         )
-
+    
     @classmethod
-    def user_question(cls, content: str) -> AgentEvent:
+    def user_question(cls, content: str, agent: AgentType) -> AgentEvent:
         return cls(
             type=AgentEventType.USER_QUESTION,
-            data={"content": content},
+            data={"content": content, "agent": agent},
         )
 
    
     @classmethod
-    def tool_call_start(cls, call_id: str, name: str, arguments: dict[str, Any]):
+    def tool_call_start(cls, call_id: str, name: str, arguments: dict[str, Any], agent: AgentType):
         return cls(
             type=AgentEventType.TOOL_CALL_START,
             data={
                 "call_id": call_id,
                 "name": name,
                 "arguments": arguments,
+                "agent": agent,
             },
         )
 
@@ -110,6 +126,7 @@ class AgentEvent:
         call_id: str,
         name: str,
         result: ToolResult,
+        agent: AgentType,
     ):
         return cls(
             type=AgentEventType.TOOL_CALL_COMPLETE,
@@ -123,6 +140,7 @@ class AgentEvent:
                 "diff": result.diff.to_diff() if result.diff else None,
                 "truncated": result.truncated,
                 "exit_code": result.exit_code,
+                "agent": agent,
             },
         )
 
@@ -132,6 +150,7 @@ class AgentEvent:
         approval_id: str,
         tool_name: str,
         description: str,
+        agent: AgentType,
         params: dict[str, Any] | None = None,
     ):
         return cls(
@@ -141,6 +160,7 @@ class AgentEvent:
                 "tool_name": tool_name,
                 "description": description,
                 "params": params or {},
+                "agent": agent,
             },
         )
         

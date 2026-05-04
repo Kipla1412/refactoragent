@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import AsyncGenerator, Awaitable, Callable
-from agent.events import AgentEvent, AgentEventType
+from agent.events import AgentEvent, AgentEventType, AgentType
 from agent.session import Session
 from client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage, parse_tool_call_arguments
 from config.config import Config
@@ -15,21 +15,30 @@ class Agent:
     def __init__(
         self,
         config: Config,
+        system_prompt: str,
+        agent_type: AgentType,
         confirmation_callback: Callable[[ToolConfirmation], bool] | None = None,
     ):
         self.config = config
-        self.session: Session | None = Session(self.config)
+        self.system_prompt = system_prompt
+        self.session: Session = Session(self.config)
+        self.agent_type = agent_type
+        self.session.agent_name = self.__class__.__name__
         
         if confirmation_callback is not None:
             self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str):
+        
+        # self.session.context_manager.clear()
 
         self.session.start_mlflow_run(message)
         
         await self.session.hook_system.trigger_before_agent(message)
 
         yield AgentEvent.agent_start(message)
+
+        self.session.context_manager.set_system_prompt(self.system_prompt)
         
         self.session.context_manager.add_user_message(message)
 
@@ -98,7 +107,7 @@ class Agent:
                     if event.text_delta:
                         content = event.text_delta.content
                         response_text += content
-                        yield AgentEvent.text_delta(content)
+                        yield AgentEvent.text_delta(content, agent=self.agent_type)
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
                         tool_calls.append(event.tool_call)
@@ -136,7 +145,7 @@ class Agent:
             )
             
             if response_text:
-                yield AgentEvent.text_complete(response_text)
+                yield AgentEvent.text_complete(response_text, agent=self.agent_type)
                 self.session.loop_detector.record_action(
                     "response",
                     text=response_text,
@@ -247,164 +256,8 @@ class Agent:
             self.session.context_manager.prune_tool_outputs()
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 
-    async def recommend_questions(self, conversation: list[str]):
 
-        # 1. Clear old context (IMPORTANT)
-        self.session.context_manager.clear()
-
-        # 2. Add simple system prompt
-        self.session.context_manager.add_user_message("""
-
-    You are a clinical decision support assistant for doctors.
-
-    Your task is to analyze the given patient conversation and generate the most relevant follow-up questions that a doctor should ask next.
-
-    Focus on identifying missing critical clinical information.
-
-    ---
-
-    ## Instructions
-
-    - Generate EXACTLY 3 follow-up questions
-    - Questions must be short, clear, and clinically relevant
-    - Do NOT ask multiple questions in one sentence
-    - Do NOT repeat information already present in the conversation
-    - Do NOT repeat previously asked questions (if provided)
-    - Do NOT provide diagnosis, treatment, or explanations
-    - Do NOT include greetings or extra text
-    - Avoid vague questions like "Can you explain more?"
-
-    ---
-
-    ## Clinical Thinking Strategy
-
-    When generating questions, prioritize missing information in this order:
-
-    1. Location of symptoms  
-    2. Duration and progression  
-    3. Severity or intensity  
-    4. Associated symptoms  
-    5. Triggers or relieving factors  
-    6. Relevant medical history (only if needed)
-
-    Always ask:
-    "What is the most important missing information right now?"
-
-    ---
-
-    ## Context Awareness
-
-    Use the full conversation to:
-    - Avoid repetition
-    - Build logically on previous answers
-    - Ask deeper, more specific questions
-
-    ---
-
-    ## Output Format (STRICT)
-
-    Return ONLY valid JSON. No extra text.
-
-    {
-    "questions": [
-        "question 1",
-        "question 2",
-        "question 3"
-    ]
-    }
-    """)
-
-        # 3. Add conversation messages
-        for msg in conversation:
-            self.session.context_manager.add_user_message(msg)
-
-        # 4. Call LLM (NO agent loop, NO streaming)
-        response_text = ""
-        async for event in self.session.client.chat_completion(
-            self.session.context_manager.get_messages(),
-            stream=False
-        ):
-            if hasattr(event, 'text_delta') and event.text_delta:
-                response_text += event.text_delta.content
-            elif hasattr(event, 'type') and event.type == 'MESSAGE_COMPLETE':
-                break
-
-        # 5. Convert to JSON safely
-        try:
-            return json.loads(response_text)
-        except:
-            return {"questions": [response_text]}
-
-    async def generate_report(self, conversation: list[str]):
-
-        import json
-
-        self.session.context_manager.clear()
-
-        self.session.context_manager.add_user_message(""" 
-
-    You are a clinical documentation assistant for doctors.
-
-    Your task is to analyze the full patient conversation and generate structured medical notes in a professional clinical format.
-
-    ---
-
-    ## Instructions
-
-    - Use only the information present in the conversation
-    - Do NOT assume missing details
-    - Do NOT provide a definitive diagnosis
-    - Do NOT suggest medications
-    - Keep the tone clinical and professional
-    - Be concise but medically meaningful
-    - Use proper medical terminology
-    - If information is missing, write "Not specified"
-
-    ---
-
-    ## Clinical Format (STRICT)
-
-    Return ONLY valid JSON.
-
-    {
-    "subjective": {
-        "chief_complaint": "",
-        "history_of_present_illness": "",
-        "associated_symptoms": []
-    },
-    "objective": {
-        "observations": []
-    },
-    "assessment": {
-        "possible_conditions": [],
-        "clinical_reasoning": ""
-    },
-    "plan": {
-        "next_steps": [],
-        "when_to_seek_care": ""
-    },
-    "summary": ""
-    }
-    """)
-
-        for msg in conversation:
-            self.session.context_manager.add_user_message(msg)
-
-        response_text = ""
-
-        async for event in self.session.client.chat_completion(
-            self.session.context_manager.get_messages(),
-            tools=None
-        ):
-            if hasattr(event, "text_delta") and event.text_delta:
-                response_text += event.text_delta.content
-
-        try:
-            return json.loads(response_text)
-        except:
-            return {"raw": response_text}
-
-    async def __aenter__(self) -> Agent:
+    async def __aenter__(self) -> BaseAgent:
         
         await self.session.initialize()
         # for tool in self.session.tool_registry.get_tools():

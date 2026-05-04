@@ -1,8 +1,0 @@
-Name: Aleesha
-Age: 23
-Gender: Female
-Symptom: Headache (started 2 days ago, getting worse)
-Medications: None
-Allergies: None
-Pain level: 6/10
-Medical history: None
