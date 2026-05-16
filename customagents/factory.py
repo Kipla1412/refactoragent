@@ -5,6 +5,7 @@ from customagents.reportagent.assesment import AssessmentAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.consultagent.consultagent import ConsultingAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
+from customagents.ehragent.ehragent import EHRAgent
 
 from config.config import Config
 from agent.session import Session
@@ -22,7 +23,8 @@ class AgentFactory:
         "soap": SOAPAgent,
         "assessment": AssessmentAgent,
         "consult": ConsultingAgent,
-        "intake": IntakeAgent
+        "intake": IntakeAgent,
+        "ehr": EHRAgent
     }
 
     @classmethod

@@ -78,7 +78,8 @@ class Agent:
                     approval_id=data["approval_id"],
                     tool_name=data["tool_name"],
                     description=data["description"],
-                    params=data.get("params")
+                    params=data.get("params"),
+                    agent=self.agent_type
                 )
             
             response_text = ""
@@ -166,6 +167,7 @@ class Agent:
                     tool_call.call_id,
                     tool_call.name,
                     tool_call.arguments,
+                    agent=self.agent_type
                 )
 
                 self.session.loop_detector.record_action(
@@ -216,7 +218,8 @@ class Agent:
                                 approval_id=data["approval_id"],
                                 tool_name=data["tool_name"],
                                 description=data["description"],
-                                params=data.get("params")
+                                params=data.get("params"),
+                                agent=self.agent_type
                             )
                         except asyncio.TimeoutError:
                             continue 
@@ -228,6 +231,7 @@ class Agent:
                         tool_call.call_id,
                         tool_call.name,
                         result,
+                        agent=self.agent_type
                     )
 
                     tool_call_results.append(
@@ -257,7 +261,7 @@ class Agent:
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 
 
-    async def __aenter__(self) -> BaseAgent:
+    async def __aenter__(self) :
         
         await self.session.initialize()
         # for tool in self.session.tool_registry.get_tools():
@@ -273,8 +277,9 @@ class Agent:
         exc_val,
         exc_tb,  
     ) -> None:
-        if self.session and self.session.client:
+        if self.session and self.session.client and self.session.mcp_manager:
             await self.session.client.close()
+            await self.session.mcp_manager.shutdown()
             # Cleanup MLflow run
             self.session.cleanup()
             self.session = None

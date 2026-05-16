@@ -10,6 +10,7 @@ from context.loop_detector import LoopDetector
 from context.manager import ContextManager
 from hooks.hook_system import HookSystem
 from safety.approval import ApprovalManager
+from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
 from tools.registry import create_default_registry
 from utils.mlflow_tracker import get_mlflow_tracker
@@ -29,6 +30,7 @@ class Session:
             self.config,
             self.tool_registry,
         )
+        self.mcp_manager = MCPManager(self.config)
         self.chat_compactor = ChatCompactor(self.client)
       
         self.pending_approvals = {}
@@ -49,6 +51,7 @@ class Session:
         self.updated_at = datetime.now()
         self.turn_count = 0
         self.agent_name = None
+        self.auth_token: str | None = None
 
         self.metadata: dict[str, any] = {}
 
@@ -108,6 +111,12 @@ class Session:
 
     async def initialize(self) -> None:
         
+        if self.context_manager:
+            return
+            
+        await self.mcp_manager.initialize(auth_token=self.auth_token)
+        self.mcp_manager.register_tools(self.tool_registry)
+
         self.discovery_manager.discover_all()
         self.context_manager = ContextManager(
             config=self.config,
@@ -168,6 +177,7 @@ class Session:
             "message_count": self.context_manager.message_count,
             "token_usage": self.context_manager.total_usage,
             "tools_count": len(self.tool_registry.get_tools()),
+            "mcp_servers": len(self.tool_registry.connected_mcp_servers),
             # "mlflow_stats": self.mlflow_tracker.get_session_stats()
         }
 

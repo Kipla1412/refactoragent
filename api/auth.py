@@ -28,7 +28,7 @@ async def get_current_user(request: Request):
 
     auth_header = request.headers.get("Authorization")
     
-    print("AUTH HEADER:", auth_header)
+    # print("AUTH HEADER:", auth_header)
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -36,12 +36,12 @@ async def get_current_user(request: Request):
         )
 
     token = auth_header.split(" ")[1]
-    print("TOKEN:", token)
+    # print("TOKEN:", token)
 
     try:
         payload = decode_token(token)
 
-        print("USER PAYLOAD:", payload)
+        # print("USER PAYLOAD:", payload)
         # Set user state if not already set by middleware
         if not hasattr(request.state, 'user'):
             request.state.user = payload

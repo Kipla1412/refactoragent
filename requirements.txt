@@ -11,6 +11,7 @@ fastapi
 reportlab
 requests
 httpx
+fastmcp
 rich
 click
 PyJWT>=2.0.0

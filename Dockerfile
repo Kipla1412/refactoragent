@@ -17,21 +17,13 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Upgrade pip first with better timeout handling
-RUN pip install --upgrade pip --timeout 300 --retries 3
-
 # Install Python dependencies with timeout handling and retry logic
 RUN pip install --no-cache-dir -r requirements.txt \
     --timeout 300 \
     --retries 3 \
     --index-url https://pypi.org/simple/ \
     --trusted-host pypi.org \
-    || (echo "First attempt failed, retrying with extended timeout..." && \
-        pip install --no-cache-dir -r requirements.txt \
-        --timeout 600 \
-        --retries 5 \
-        --index-url https://pypi.org/simple/ \
-        --trusted-host pypi.org)
+    --upgrade pip
 
 # Copy the application code
 COPY . .

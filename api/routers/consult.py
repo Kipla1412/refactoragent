@@ -7,6 +7,8 @@ from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
 from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
+import uuid
+
 router = APIRouter(prefix="/agent")
 
 # global session manager
@@ -78,7 +80,10 @@ async def consult_api(request: Request, data: ChatRequest):
 
     return StreamingResponse(
         event_stream(),
-        media_type="application/x-ndjson" # NDJSON is standard for streaming
+        media_type="application/x-ndjson", # NDJSON is standard for streaming
+        headers={
+            "X-Session-ID": session.session_id
+        }
     )
 
 
@@ -134,5 +139,8 @@ async def intake_stream(request: Request, data: ChatRequest):
 
     return StreamingResponse(
         event_stream(), 
-        media_type="application/x-ndjson"
+        media_type="application/x-ndjson",
+        headers={
+            "X-Session-ID": session.session_id
+        }
     )

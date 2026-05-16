@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 class ToolRegistry:
     def __init__(self, config: Config):
         self._tools: dict[str, Tool] = {}
+        self._mcp_tools: dict[str, Tool] = {}
         self.config = config
+
+    @property
+    def connected_mcp_servers(self) -> list[Tool]:
+        return self._mcp_tools.values()
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:
@@ -33,6 +38,9 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         if name in self._tools:
             return self._tools[name]
+
+        elif name in self._mcp_tools:
+            return self._mcp_tools[name]
 
         return None
 

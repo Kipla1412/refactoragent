@@ -34,6 +34,7 @@ class AgentType(str, Enum):
    ASSESSMENT = "assessment"
    CONSULT = "consult"
    INTAKE = "intake"
+   EHR = "ehr"
 
 @dataclass
 class AgentEvent:
@@ -41,10 +42,10 @@ class AgentEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def agent_start(cls, message: str) -> AgentEvent:
+    def agent_start(cls, message: str, agent: AgentType) -> AgentEvent:
         return cls(
             type=AgentEventType.AGENT_START,
-            data={"message": message},
+            data={"message": message, "agent": agent},
         )
 
     @classmethod
@@ -52,12 +53,14 @@ class AgentEvent:
         cls,
         response: str | None = None,
         usage: TokenUsage | None = None,
+        agent: AgentType | None = None,
     ) -> AgentEvent:
         return cls(
             type=AgentEventType.AGENT_END,
             data={
                 "response": response,
                 "usage": usage.__dict__ if usage else None,
+                "agent": agent,
             },
         )
 

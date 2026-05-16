@@ -9,7 +9,7 @@ class SessionManager:
 
         if user_id not in self.sessions:
             session = Session(config)
-            await session.initialize()
+            # await session.initialize()
 
             # attach metadata (optional but powerful)
             session.metadata["user_id"] = user_id

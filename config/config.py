@@ -28,9 +28,11 @@ class MCPServerConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     cwd: Path | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
 
     # http/sse transport
     url: str | None = None
+    transport: str = "streamable-http"
 
     @model_validator(mode="after")
     def validate_transport(self) -> MCPServerConfig:
@@ -152,6 +154,20 @@ class Config(BaseModel):
     def iam_issuer(self):
         return os.environ.get("IAM_ISSUER", "https://iam.drgodly.com")
 
+    @property
+    def mcp_servers_config(self) -> dict[str, MCPServerConfig]:
+
+        return {
+            "fhir": MCPServerConfig(
+                url=self.fhir_base_url,
+                enabled=True,
+                transport="streamable-http",
+            )
+        }
+        
+    @property
+    def fhir_base_url(self):
+        return os.environ.get("FHIR_BASE_URL")
     
     @property
     def mlflow_enabled(self) -> bool:
@@ -163,7 +179,7 @@ class Config(BaseModel):
 
     @property
     def mlflow_experiment_name(self) -> str:
-        return os.environ.get("MLFLOW_EXPERIMENT_NAME", "ConsultAgent")
+        return os.environ.get("MLFLOW_EXPERIMENT_NAME")
 
         
     def to_dict(self) -> dict[str, Any]:

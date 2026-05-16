@@ -11,6 +11,7 @@ from agent.agent import Agent
 from config.config import Config
 from api.routers.agent import router as agent_router
 from api.routers.consult import router as consult_router
+from api.routers.ehr import router as ehr_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -94,6 +95,7 @@ def create_app():
 
     app.include_router(agent_router, prefix="/api")
     app.include_router(consult_router, prefix="/api")
+    app.include_router(ehr_router, prefix="/api")
 
     @app.get("/health")
     async def health():
