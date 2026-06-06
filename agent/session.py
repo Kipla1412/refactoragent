@@ -42,7 +42,7 @@ class Session:
         )
 
         # Add global MLflow tracker
-        self.mlflow_tracker = get_mlflow_tracker()
+        self.mlflow_tracker = get_mlflow_tracker(self.config)
         self.mlflow_run = None
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)

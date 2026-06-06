@@ -8,6 +8,7 @@ from customagents.sessionmanager import SessionManager
 from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
 import uuid
+from typing import Any, Dict, List
 
 router = APIRouter(prefix="/agent")
 
@@ -17,7 +18,54 @@ session_manager = SessionManager()
 # Request Model
 class ChatRequest(BaseModel):
     message: str
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "message": "Patient has fever, cough and sore throat for 3 days. What additional questions should I ask?"
+            }
+        }
+    }
 
+class ChatResponse(BaseModel):
+    type: str
+    message: str
+    agent: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "type": "text_complete",
+                "message": "Can you tell me more about the patient's symptoms?",
+                "agent": "consult"
+            }
+        }
+    }
+
+class ErrorResponse(BaseModel):
+    error: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "error": "Message is empty"
+            }
+        }
+    }
+
+class IntakeResponse(BaseModel):
+    type: str
+    message: str
+    agent: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "type": "question",
+                "message": "What is the patient's age?",
+                "agent": "intake"
+            }
+        }
+    }
 
 @router.post(
     "/consult",
@@ -44,6 +92,16 @@ Requires valid user session with consultagent:chat permission.
 - Streaming JSON events with AI responses
 - Maintains conversation context across sessions
 """,
+    responses={
+        200: {
+            "model": ChatResponse,
+            "description": "NDJSON streaming response"
+        },
+        400: {
+            "model": ErrorResponse,
+            "description": "Message is empty"
+        }
+    },
     dependencies=[Depends(require_permission("consultagent", "chat"))]
 )
 async def consult_api(request: Request, data: ChatRequest):
@@ -113,6 +171,16 @@ Requires valid user session with consultagent:chat permission.
 - Streaming JSON events with intake questions
 - Final structured patient data in JSON format
 """,
+    responses={
+        200: {
+            "model": IntakeResponse,
+            "description": "NDJSON streaming response"
+        },
+        400: {
+            "model": ErrorResponse,
+            "description": "Message is empty"
+        }
+    },
     dependencies=[Depends(require_permission("consultagent", "chat"))]
 )
 async def intake_stream(request: Request, data: ChatRequest):

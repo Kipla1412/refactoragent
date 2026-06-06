@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import json
 import uuid
-
+from typing import List, Dict, Any
 from api.auth import require_permission
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
@@ -18,7 +18,52 @@ session_manager = SessionManager()
 class MCPRequest(BaseModel):
     message: str
     session_id: str | None = None
+    
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "message": "Show medications for patient 12345",
+                "session_id": "session-123"
+            }
+        }
+    }
 
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "detail": "Authentication failed"
+            }
+        }
+    }
+
+
+class MCPStreamResponse(BaseModel):
+    type: str
+    message: str | None = None
+    tool: str | None = None
+    arguments: dict[str, Any] | None = None
+    output: Any | None = None
+    success: bool | None = None
+    agent: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "type": "tool_result",
+                "tool": "get_patient",
+                "success": True,
+                "output": {
+                    "id": "12345",
+                    "name": "John Doe"
+                },
+                "agent": "ehr"
+            }
+        }
+    }
 
 @router.post(
     "/mcpagent",
@@ -40,9 +85,24 @@ Requires:
 # Permission Required:
 # `texttosqlagent:chat` - Healthcare data query access
 
-"""
-    # dependencies=[Depends(require_permission("texttosqlagent", "chat"))]
+""",
+    responses={
+        200: {
+            # "model": MCPStreamResponse,
+            "description": "Streaming MCP events"
+        },
+        401: {
+            "model": ErrorResponse,
+            "description": "Authentication failed"
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Internal server error"
+        }
+    }
 )
+    # dependencies=[Depends(require_permission("texttosqlagent", "chat"))]
+
 async def mcp_chat(req: MCPRequest, request: Request):
 
     config = request.app.state.config

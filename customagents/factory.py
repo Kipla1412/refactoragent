@@ -6,7 +6,7 @@ from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.consultagent.consultagent import ConsultingAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.ehragent.ehragent import EHRAgent
-
+from customagents.reportagent.clinicalextraction import ClinicalExtractionAgent
 from config.config import Config
 from agent.session import Session
 from abc import ABC, abstractmethod
@@ -24,7 +24,8 @@ class AgentFactory:
         "assessment": AssessmentAgent,
         "consult": ConsultingAgent,
         "intake": IntakeAgent,
-        "ehr": EHRAgent
+        "ehr": EHRAgent,
+        "clinical_extraction":ClinicalExtractionAgent
     }
 
     @classmethod
