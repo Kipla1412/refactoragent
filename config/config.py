@@ -171,7 +171,7 @@ class Config(BaseModel):
     
     @property
     def mlflow_enabled(self) -> bool:
-        return os.environ.get("MLFLOW_ENABLED", "true").lower() == "true"
+        return os.environ.get("MLFLOW_ENABLED", "false").lower() == "true"
 
     @property
     def mlflow_tracking_uri(self) -> str:

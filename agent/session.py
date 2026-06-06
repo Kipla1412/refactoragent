@@ -125,14 +125,17 @@ class Session:
         )
         
         # Setup MLflow run for this session (optional)
-        try:
-            if mlflow.active_run():
-                mlflow.end_run()
-            self.mlflow_run = self.mlflow_tracker.start_run("initializing")
-        except Exception as e:
-            print(f"Warning: MLflow tracking disabled: {e}")
+        if self.mlflow_tracker:
+            try:
+                if mlflow.active_run():
+                    mlflow.end_run()
+                self.mlflow_run = self.mlflow_tracker.start_run("initializing")
+            except Exception as e:
+                print(f"Warning: MLflow tracking disabled: {e}")
+                self.mlflow_run = None
+        else:
+
             self.mlflow_run = None
-       
         # Set session ID for trace tracking
         if self.mlflow_tracker:
             self.mlflow_tracker.current_session_id = self.session_id
@@ -186,17 +189,23 @@ class Session:
     @asynccontextmanager
     async def trace_agent_run(self, user_message: str):
 
-        with self.mlflow_tracker.start_span(
-            name="agent_run",
-            attributes={
-                "span_type": "agent",
-                "session_id": self.session_id,
-                "user_message": user_message[:200],
-            },
-        ):
+        if self.mlflow_tracker:
+            with self.mlflow_tracker.start_span(
+                name="agent_run",
+                attributes={
+                    "span_type": "agent",
+                    "session_id": self.session_id,
+                    "user_message": user_message[:200],
+                },
+            ):
+                yield
+        else:
             yield
 
     def start_mlflow_run(self, message: str):
+
+        if not self.mlflow_tracker:
+            return
         
         try:
             self.mlflow_run = self.mlflow_tracker.start_run(
@@ -214,7 +223,7 @@ class Session:
 
     def end_mlflow_run(self):
 
-        if self.mlflow_run:
+        if self.mlflow_tracker and self.mlflow_run:
             self.mlflow_tracker.end_run()
             self.mlflow_run = None
 

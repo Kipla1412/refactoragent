@@ -119,7 +119,7 @@ class Agent:
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
 
-                    if usage:
+                    if usage and self.session.mlflow_tracker:
                         self.session.mlflow_tracker.log_metrics({
                             "prompt_tokens": usage.prompt_tokens,
                             "completion_tokens": usage.completion_tokens,
@@ -179,23 +179,57 @@ class Agent:
                 
                 print(f"DEBUG: Tool {tool_call.name} called with args: {tool_call.arguments}")
                 
-                with self.session.mlflow_tracker.start_span(
-                    name=tool_call.name,
-                    attributes={
-                        "span_type": "tool",
-                        "tool.name": tool_call.name,
-                        "tool.args": json.dumps(tool_call.arguments)[:500],
-                    },
-                ):
-                    # result = await self.session.tool_registry.invoke(
-                    #     tool_call.name,
-                    #     tool_call.arguments,
-                    #     self.config.cwd,
-                    #     self.session.hook_system,
-                    #     self.session.approval_manager,
-                    # )
+                if self.session.mlflow_tracker:
 
-                    # Wrap the tool invocation in a task so it runs in the background
+                    with self.session.mlflow_tracker.start_span(
+                        name=tool_call.name,
+                        attributes={
+                            "span_type": "tool",
+                            "tool.name": tool_call.name,
+                            "tool.args": json.dumps(tool_call.arguments)[:500],
+                        },
+                    ):
+                        # result = await self.session.tool_registry.invoke(
+                        #     tool_call.name,
+                        #     tool_call.arguments,
+                        #     self.config.cwd,
+                        #     self.session.hook_system,
+                        #     self.session.approval_manager,
+                        # )
+
+                        # Wrap the tool invocation in a task so it runs in the background
+                        invocation_task = asyncio.create_task(
+                            self.session.tool_registry.invoke(
+                                tool_call.name,
+                                tool_call.arguments,
+                                self.config.cwd,
+                                self.session.hook_system,
+                                self.session.approval_manager,
+                            )
+                        )
+
+                        # While the tool is running (it might be paused waiting for approval!)
+                        # We "drain" the event queue and yield requests to the frontend
+                        result = None
+                        while not invocation_task.done():
+                            try:
+                                # Check queue every 0.1s. If an approval is added, yield it immediately.
+                                event_data = await asyncio.wait_for(self.session.event_queue.get(), timeout=0.1)
+                                data = event_data["data"]
+                                yield AgentEvent.approval_request(
+                                    approval_id=data["approval_id"],
+                                    tool_name=data["tool_name"],
+                                    description=data["description"],
+                                    params=data.get("params"),
+                                    agent=self.agent_type
+                                )
+                            except asyncio.TimeoutError:
+                                continue 
+                        
+                        result = await invocation_task
+
+                else:
+
                     invocation_task = asyncio.create_task(
                         self.session.tool_registry.invoke(
                             tool_call.name,
@@ -206,14 +240,19 @@ class Agent:
                         )
                     )
 
-                    # While the tool is running (it might be paused waiting for approval!)
-                    # We "drain" the event queue and yield requests to the frontend
                     result = None
+
                     while not invocation_task.done():
+
                         try:
-                            # Check queue every 0.1s. If an approval is added, yield it immediately.
-                            event_data = await asyncio.wait_for(self.session.event_queue.get(), timeout=0.1)
+
+                            event_data = await asyncio.wait_for(
+                                self.session.event_queue.get(),
+                                timeout=0.1
+                            )
+
                             data = event_data["data"]
+
                             yield AgentEvent.approval_request(
                                 approval_id=data["approval_id"],
                                 tool_name=data["tool_name"],
@@ -221,11 +260,12 @@ class Agent:
                                 params=data.get("params"),
                                 agent=self.agent_type
                             )
+
                         except asyncio.TimeoutError:
-                            continue 
-                    
+                            continue
+
                     result = await invocation_task
-                    
+                
 
                     yield AgentEvent.tool_call_complete(
                         tool_call.call_id,

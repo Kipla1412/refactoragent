@@ -88,7 +88,7 @@ Requires:
 """,
     responses={
         200: {
-            # "model": MCPStreamResponse,
+            "model": MCPStreamResponse,
             "description": "Streaming MCP events"
         },
         401: {

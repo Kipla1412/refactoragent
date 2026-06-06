@@ -182,7 +182,7 @@ class ClinicalCondition(BaseModel):
 class ClinicalObservation(BaseModel):
     display: str
     terminologySystem: str
-    value: str
+    value: str | None = None
     unit: Optional[str] = None
 
 
