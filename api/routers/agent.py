@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 import json
 from typing import Optional
-
+import traceback
 from api.auth import require_permission
 from agent.events import AgentType
 from customagents.factory import AgentFactory
@@ -46,10 +46,27 @@ class SOAPResponse(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "subjective": "Patient reports fever and cough for 3 days.",
-                "objective": "Temperature 101°F.",
-                "assessment": "Likely viral upper respiratory infection.",
-                "plan": "Hydration, rest, and paracetamol as needed."
+                "subjective": {
+                    "chief_complaint": "Fever and cough",
+                    "history_of_present_illness": "Fever and cough for 3 days"
+                },
+                "objective": {
+                    "observations": [
+                        "Temperature: 101.2 F"
+                    ]
+                },
+                "assessment": {
+                    "possible_conditions": [
+                        "Upper Respiratory Tract Infection"
+                    ]
+                },
+                "plan": {
+                    "next_steps": [
+                        "CBC",
+                        "Chest X-Ray"
+                    ]
+                },
+                "summary": "Patient has fever and cough."
             }
         }
     }
@@ -62,20 +79,57 @@ class AssessmentResponse(BaseModel):
     procedures: str
     risk_level: str
     red_flags: List[str]
+
     model_config = {
         "json_schema_extra": {
             "example": {
-                "diagnosis": ["Viral Fever"],
+                "clinical_overview": "Patient presents with fever, cough, and sore throat for 4 days. Findings suggest mild upper respiratory tract infection.",
                 "differential_diagnosis": [
-                    "Influenza",
-                    "Upper Respiratory Tract Infection"
+                    {
+                        "condition": "Viral Upper Respiratory Tract Infection",
+                        "likelihood": "high",
+                        "rationale": "Most symptoms are consistent with viral URI."
+                    },
+                    {
+                        "condition": "Bacterial Pharyngitis",
+                        "likelihood": "moderate",
+                        "rationale": "Fever and sore throat are present."
+                    }
                 ],
+                "diagnostic_plan": {
+                    "laboratory_tests": [
+                        {
+                            "test": "Complete Blood Count",
+                            "purpose": "Assess infection severity."
+                        }
+                    ],
+                    "imaging": [
+                        {
+                            "study": "Chest X-Ray",
+                            "purpose": "Rule out pneumonia."
+                        }
+                    ]
+                },
                 "treatment_plan": [
-                    "Paracetamol",
-                    "Oral hydration"
+                    {
+                        "condition": "Upper Respiratory Tract Infection",
+                        "recommendation": "Amoxicillin 500 mg",
+                        "route": "oral",
+                        "duration": "7 days"
+                    },
+                    {
+                        "condition": "Fever",
+                        "recommendation": "Paracetamol 650 mg",
+                        "route": "oral",
+                        "duration": "as needed"
+                    }
                 ],
-                "follow_up": [
-                    "Review after 3 days"
+                "procedures": "No procedures required",
+                "risk_level": "LOW",
+                "red_flags": [
+                    "Shortness of breath",
+                    "Chest pain",
+                    "Persistent high fever"
                 ]
             }
         }
@@ -189,10 +243,10 @@ class ClinicalObservation(BaseModel):
 class MedicationRequest(BaseModel):
     display: str
     terminologySystem: str
-    dose: str
-    frequency: str
+    dose: Optional[str] = None
+    frequency: Optional[str] = None
     duration: Optional[str] = None
-    route: str
+    route: Optional[str] = None
 
 
 class ServiceRequest(BaseModel):
@@ -201,10 +255,11 @@ class ServiceRequest(BaseModel):
 
 
 class ClinicalExtractionResponse(BaseModel):
-    conditions: list[ClinicalCondition]
-    observations: list[ClinicalObservation]
-    medicationRequests: list[MedicationRequest]
-    serviceRequests: list[ServiceRequest]
+
+    conditions: list[ClinicalCondition] = Field(default_factory=list)
+    observations: list[ClinicalObservation] = Field(default_factory=list)
+    medicationRequests: list[MedicationRequest] = Field(default_factory=list)
+    serviceRequests: list[ServiceRequest] = Field(default_factory=list)
 
     model_config = {
         "json_schema_extra": {
@@ -540,6 +595,7 @@ async def consultation_workflow(
         )
     ]
 )
+
 async def generate_clinical_extraction(
     request: Request,
     data: ClinicalExtractionRequest
@@ -567,12 +623,35 @@ async def generate_clinical_extraction(
             assessment_report=data.assessment
         )
 
-      
-        return result
+        print("=" * 100)
+        print(json.dumps(result, indent=2))
+        print("=" * 100)
+
+        # result["conditions"] = result.get("conditions") or []
+        # result["observations"] = result.get("observations") or []
+        # result["medicationRequests"] = result.get("medicationRequests") or []
+        # result["serviceRequests"] = result.get("serviceRequests") or []
+
+        # return result
+
+        return ClinicalExtractionResponse(
+            conditions=result.get("conditions") or [],
+            observations=result.get("observations") or [],
+            medicationRequests=result.get("medicationRequests") or [],
+            serviceRequests=result.get("serviceRequests") or [],
+        )
+            
+
+    # except Exception as e:
+
+    #     raise HTTPException(
+    #         status_code=500,
+    #         detail=f"Clinical extraction failed: {str(e)}"
+    #     )
 
     except Exception as e:
-
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"Clinical extraction failed: {str(e)}"
+            detail=str(e)
         )

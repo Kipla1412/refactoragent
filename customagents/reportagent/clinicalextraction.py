@@ -107,20 +107,20 @@ class ClinicalExtractionAgent(Agent):
 
             return {
                 "conditions": parsed.get(
-                    "conditions",
-                    None
+                    "conditions" or
+                    []
                 ),
                 "observations": parsed.get(
-                    "observations",
-                    None
+                    "observations" or
+                    []
                 ),
                 "medicationRequests": parsed.get(
-                    "medicationRequests",
-                    None
+                    "medicationRequests" or
+                    []
                 ),
                 "serviceRequests": parsed.get(
-                    "serviceRequests",
-                    None
+                    "serviceRequests" or
+                    []
                 )
             }
 
