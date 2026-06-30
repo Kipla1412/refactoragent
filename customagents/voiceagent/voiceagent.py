@@ -1,10 +1,13 @@
 from __future__ import annotations
 import re
 import base64
-import asyncio
-from typing import TYPE_CHECKING
-from agent.events import AgentEventType
+from typing import TYPE_CHECKING, AsyncGenerator
+from agent.agent import Agent
+from agent.events import AgentEvent, AgentEventType, AgentType
 from client.response import StreamEventType
+from prompts.system import get_system_prompt
+from .voiceintakeprompt import VOICE_INTAKE_PROMPT
+from .voiceconsultprompt import VOICE_CONSULT_PROMPT
 
 if TYPE_CHECKING:
     from client.llm_client import LLMClient
@@ -66,6 +69,76 @@ async def translate_text(
     return text
 
 
+class VoiceIntakeAgent(Agent):
+    def __init__(self, config, session=None):
+        super().__init__(config, VOICE_INTAKE_PROMPT, AgentType.VOICE_INTAKE)
+        if session:
+            self.session = session
+
+    async def run(self, transcript: str) -> AsyncGenerator[AgentEvent, None]:
+        if not self.session.context_manager:
+            await self.session.initialize()
+
+        self.session.agent_name = self.__class__.__name__
+
+        full_system_prompt = get_system_prompt(
+            config=self.config,
+            role_prompt=self.system_prompt,
+        )
+        self.session.context_manager.set_system_prompt(full_system_prompt)
+        self.session.context_manager.add_user_message(transcript)
+
+        self.session.start_mlflow_run(transcript)
+
+        try:
+            async for event in self._agentic_loop():
+                if hasattr(event, 'data') and event.data.get("agent") is None:
+                    event.data["agent"] = self.agent_type
+                yield event
+        finally:
+            self.session.end_mlflow_run()
+
+    async def __aenter__(self):
+        if not self.session.context_manager:
+            await self.session.initialize()
+        return self
+
+
+class VoiceConsultAgent(Agent):
+    def __init__(self, config, session=None):
+        super().__init__(config, VOICE_CONSULT_PROMPT, AgentType.VOICE_CONSULT)
+        if session:
+            self.session = session
+
+    async def run(self, transcript: str) -> AsyncGenerator[AgentEvent, None]:
+        if not self.session.context_manager:
+            await self.session.initialize()
+
+        self.session.agent_name = self.__class__.__name__
+
+        full_system_prompt = get_system_prompt(
+            config=self.config,
+            role_prompt=self.system_prompt,
+        )
+        self.session.context_manager.set_system_prompt(full_system_prompt)
+        self.session.context_manager.add_user_message(transcript)
+
+        self.session.start_mlflow_run(transcript)
+
+        try:
+            async for event in self._agentic_loop():
+                if hasattr(event, 'data') and event.data.get("agent") is None:
+                    event.data["agent"] = self.agent_type
+                yield event
+        finally:
+            self.session.end_mlflow_run()
+
+    async def __aenter__(self):
+        if not self.session.context_manager:
+            await self.session.initialize()
+        return self
+
+
 class VoiceSession:
 
     def __init__(self, agent, tts):
@@ -73,7 +146,6 @@ class VoiceSession:
         self.tts = tts
 
     async def _translate_to(self, text: str, target_language: str) -> str:
-        """Translate English LLM output to patient's language for TTS."""
         if not target_language or target_language in ("en-IN", "en", "", None):
             print(f"[TRANSLATE] Skipped — target_language={target_language}")
             return text
@@ -85,7 +157,6 @@ class VoiceSession:
         return result
 
     async def _drain_tts(self):
-        """Drains audio chunks until a final event frame is read."""
         while True:
             try:
                 res = await self.tts.receive_audio()
@@ -104,9 +175,9 @@ class VoiceSession:
 
     async def process_transcript_to_audio(self, transcript: str, target_language: str = "en-IN"):
         print(f"[PROCESS] target_language={target_language} transcript='{transcript[:50]}...'")
-        buffer = ""        # current sentence accumulator (for punctuation detection)
-        tts_buffer = ""    # multi-sentence accumulator (to avoid stopping at every period)
-        text_buffer = ""   # text buffer synced with TTS — only yielded alongside audio
+        buffer = ""
+        tts_buffer = ""
+        text_buffer = ""
 
         async for event in self.agent.run(transcript):
             if event.type == AgentEventType.TEXT_DELTA:
@@ -117,12 +188,10 @@ class VoiceSession:
 
                 total_len = len(tts_buffer.strip())
 
-                # Process when we have a sentence boundary AND enough chars,
-                # OR when text has accumulated enough without any punctuation
                 has_punct = bool(re.search(r"[.!?]\s*$", buffer))
                 should_process = (
                     (has_punct and total_len >= 15) or
-                    (total_len >= 40 and " " in buffer)  # force-flush long runs without punctuation
+                    (total_len >= 40 and " " in buffer)
                 )
 
                 if should_process:
@@ -132,7 +201,6 @@ class VoiceSession:
                     buffer = ""
                     text_buffer = ""
                     if text_to_speak:
-                        # Yield text immediately — don't wait for audio to reduce perceived latency
                         if chunk_text:
                             yield {"type": "text", "content": chunk_text + " "}
                         translated = await self._translate_to(text_to_speak, target_language)
@@ -141,10 +209,8 @@ class VoiceSession:
                         async for audio_bytes in self._drain_tts():
                             yield {"type": "audio", "content": audio_bytes}
                 elif has_punct:
-                    # Small sentence — reset buffer but keep accumulating in tts_buffer
                     buffer = ""
 
-        # Flush remaining text from both buffers
         remaining = tts_buffer.strip() or buffer.strip()
         if remaining:
             chunk_text = text_buffer.strip()

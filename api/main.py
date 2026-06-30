@@ -9,9 +9,11 @@ from fastapi.responses import JSONResponse
 
 from agent.agent import Agent
 from config.config import Config
+from customagents.sessionmanager import SessionManager
 from api.routers.agent import router as agent_router
 from api.routers.consult import router as consult_router
 from api.routers.ehr import router as ehr_router
+from api.wsrouters.webs2s import router as webs2s_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,9 +31,10 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Alees AI Agent Runtime")
 
     config = Config()
+    session_manager = SessionManager()
 
-    # store only config
     app.state.config = config
+    app.state.session_manager = session_manager
 
     logger.info("System initialized successfully")
 
@@ -60,7 +63,7 @@ def create_app():
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
 
-        public_paths = ["/docs", "/openapi.json", "/health"]
+        public_paths = ["/docs", "/openapi.json", "/health", "/ws"]
 
         if request.url.path.startswith(tuple(public_paths)):
             return await call_next(request)
@@ -96,6 +99,7 @@ def create_app():
     app.include_router(agent_router, prefix="/api")
     app.include_router(consult_router, prefix="/api")
     app.include_router(ehr_router, prefix="/api")
+    app.include_router(webs2s_router, prefix="/ws")
 
     @app.get("/health")
     async def health():

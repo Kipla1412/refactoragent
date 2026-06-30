@@ -4,6 +4,11 @@ import os
 from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, Field, model_validator
+from speechtospeech.providers.stt.factory import create_stt_provider
+from speechtospeech.providers.tts.factory import create_tts_provider
+from speechtospeech.audioprocessor import AudioProcessor
+from speechtospeech.speechtotext.sttengine import TranscriptionEngine
+from speechtospeech.texttospeech.ttsengine import TTSEngine
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -180,6 +185,148 @@ class Config(BaseModel):
     @property
     def mlflow_experiment_name(self) -> str:
         return os.environ.get("MLFLOW_EXPERIMENT_NAME")
+    
+    
+    @property
+    def vad_enabled(self):
+        return os.environ.get("VAD_ENABLED", "true") == "true"
+    
+    @property
+    def sarvam_api_key(self):
+        return os.environ.get("SARVAM_API_KEY")
+    
+    @property
+    def sarvam_stt_model(self):
+        return os.environ.get(
+            "SARVAM_STT_MODEL",
+            "saaras:v3"
+        )
+
+    @property
+    def sarvam_tts_model(self):
+        return os.environ.get(
+            "SARVAM_TTS_MODEL",
+            "bulbul:v3"
+        )
+
+    @property
+    def sarvam_speaker(self):
+        return os.environ.get(
+            "SARVAM_SPEAKER",
+            "neha"
+        )
+
+    @property
+    def stt_engine(self):
+
+        if not hasattr(self, "_stt_engine") or self._stt_engine is None:
+
+            api_key = self.openai_api_key
+            if self.stt_provider == "huggingface":
+                api_key = self.hf_api_key
+            elif self.stt_provider == "sarvam":
+                api_key = self.sarvam_api_key
+
+            provider = create_stt_provider(
+                self.stt_provider,
+                api_key=api_key,
+                model=self.stt_model,
+                endpoint_url=self.stt_endpoint,
+                language=self.stt_language,
+                debug=self.debug
+            )
+
+            processor = AudioProcessor(target_rate=self.stt_sample_rate)
+
+            self._stt_engine = TranscriptionEngine(provider, processor)
+
+        return self._stt_engine
+
+    @property
+    def hf_api_key(self):
+        return os.environ.get("HF_API_KEY")
+
+    @property
+    def openai_api_key(self):
+        return os.environ.get("API_KEY")
+    
+    @property
+    def stt_provider(self) -> str:
+        return os.environ.get("STT_PROVIDER", "huggingface")
+
+    @property
+    def stt_model(self) -> str:
+        return os.environ.get("STT_MODEL", "openai/whisper-large-v3")
+
+    @property
+    def stt_endpoint(self) -> str | None:
+        return os.environ.get("STT_ENDPOINT")
+
+    @property
+    def stt_sample_rate(self) -> int:
+        return int(os.environ.get("STT_SAMPLE_RATE", "16000"))
+    
+    @property
+    def stt_language(self) -> str:
+        return os.environ.get("STT_LANGUAGE", "en")
+    
+    # TTS CONFIG
+# --------------------------------------------------
+
+    @property
+    def tts_provider(self):
+        return os.environ.get("TTS_PROVIDER", "openai")
+
+    @property
+    def tts_model(self):
+        return os.environ.get("TTS_MODEL", "gpt-4o-mini-tts")
+
+    @property
+    def tts_endpoint(self):
+        return os.environ.get("TTS_ENDPOINT")
+
+    @property
+    def tts_sample_rate(self):
+        return int(os.environ.get("TTS_SAMPLE_RATE", "22050"))
+
+    @property
+    def groq_api_key(self):
+        return os.environ.get("GROQ_API_KEY")
+
+    @property
+    def tts_language(self):
+        return os.environ.get("TTS_LANGUAGE", "en-IN")
+
+    @property
+    def tts_speaker(self):
+        return os.environ.get("TTS_SPEAKER", "anushka")
+
+    @property
+    @property
+    def tts_engine(self):
+
+        if not hasattr(self, "_tts_engine"):
+
+            api_key = self.openai_api_key
+            if self.tts_provider == "groq":
+                api_key = self.groq_api_key
+            elif self.tts_provider == "sarvam":
+                api_key = self.sarvam_api_key
+
+            provider = create_tts_provider(
+                self.tts_provider,
+                api_key=api_key,
+                model=self.tts_model,
+                endpoint_url=self.tts_endpoint,
+                language=self.tts_language,
+                speaker=self.tts_speaker,
+            )
+
+            processor = AudioProcessor(target_rate=self.tts_sample_rate)
+
+            self._tts_engine = TTSEngine(provider, processor)
+
+        return self._tts_engine
 
         
     def to_dict(self) -> dict[str, Any]:

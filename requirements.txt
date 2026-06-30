@@ -10,8 +10,12 @@ tiktoken
 fastapi
 reportlab
 requests
+websockets
+setuptools
 httpx
 fastmcp
 rich
 click
 PyJWT>=2.0.0
+soundfile
+sarvamai
