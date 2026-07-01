@@ -7,7 +7,8 @@ from customagents.consultagent.consultagent import ConsultingAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.ehragent.ehragent import EHRAgent
 from customagents.reportagent.clinicalextraction import ClinicalExtractionAgent
-from customagents.voiceagent.voiceagent import VoiceIntakeAgent, VoiceConsultAgent
+from customagents.voiceagent.voiceintake import VoiceIntakeAgent
+from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from config.config import Config
 from agent.session import Session
 from abc import ABC, abstractmethod

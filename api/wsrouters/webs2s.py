@@ -6,7 +6,9 @@ import re
 import time
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
-from customagents.voiceagent.voiceagent import VoiceIntakeAgent, VoiceConsultAgent, VoiceSession, translate_text
+from customagents.voiceagent.voiceagent import VoiceSession, translate_text
+from customagents.voiceagent.voiceintake import VoiceIntakeAgent
+from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
 from speechtospeech.providers.tts.streamsarvam import SarvamStreamingTTSProvider
 
