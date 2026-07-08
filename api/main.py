@@ -14,7 +14,8 @@ from api.routers.agent import router as agent_router
 from api.routers.consult import router as consult_router
 from api.routers.ehr import router as ehr_router
 from api.wsrouters.webs2s import router as webs2s_router
-
+from api.wsrouters.diarize import router as diarize_router
+from api.wsrouters.diarize import router as diarization_router
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import decode_token
@@ -100,6 +101,8 @@ def create_app():
     app.include_router(consult_router, prefix="/api")
     app.include_router(ehr_router, prefix="/api")
     app.include_router(webs2s_router, prefix="/ws")
+    app.include_router(diarize_router, prefix="/ws")
+    app.include_router(diarization_router, prefix="/ws")
 
     @app.get("/health")
     async def health():

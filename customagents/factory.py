@@ -9,6 +9,7 @@ from customagents.ehragent.ehragent import EHRAgent
 from customagents.reportagent.clinicalextraction import ClinicalExtractionAgent
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
+from customagents.diarizeagent.diarizeagent import DiarizeAgent
 from config.config import Config
 from agent.session import Session
 from abc import ABC, abstractmethod
@@ -30,6 +31,7 @@ class AgentFactory:
         "clinical_extraction":ClinicalExtractionAgent,
         "voice_intake": VoiceIntakeAgent,
         "voice_consult": VoiceConsultAgent,
+        "diarize": DiarizeAgent,
     }
 
     @classmethod

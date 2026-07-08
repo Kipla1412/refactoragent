@@ -161,10 +161,12 @@ class Config(BaseModel):
 
     @property
     def mcp_servers_config(self) -> dict[str, MCPServerConfig]:
-
+        base_url = self.fhir_base_url
+        if not base_url:
+            return {}
         return {
             "fhir": MCPServerConfig(
-                url=self.fhir_base_url,
+                url=base_url,
                 enabled=True,
                 transport="streamable-http",
             )

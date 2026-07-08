@@ -38,6 +38,7 @@ class AgentType(str, Enum):
    CLINICAL_EXTRACTION="clinical_extraction"
    VOICE_INTAKE = "voice_intake"
    VOICE_CONSULT = "voice_consult"
+   DIARIZE = "diarize"
 
 @dataclass
 class AgentEvent:
