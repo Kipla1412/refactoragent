@@ -1,20 +1,26 @@
 {
-  "name": "ai-coding-agent",
-  "version": "1.0.0",
-  "description": "An AI agent that can execute tasks using tools and manage conversations.",
-  "main": "script.js",
+  "name": "refactoragent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-agent clinical voice system with streaming STT, diarization, and MLflow tracking",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload",
+    "start": "uvicorn api.main:app --host 0.0.0.0 --port 8000",
+    "install": "uv venv && uv pip install -e .",
+    "lock": "uv lock",
+    "sync": "uv sync"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RivaanRanawat/ai-coding-agent.git"
+    "url": "git+https://github.com/Kipla1412/refactoragent.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/RivaanRanawat/ai-coding-agent/issues"
-  },
-  "homepage": "https://github.com/RivaanRanawat/ai-coding-agent#readme"
+  "keywords": [
+    "clinical-voice",
+    "diarization",
+    "speech-to-text",
+    "text-to-speech",
+    "mlflow",
+    "fastapi",
+    "websocket"
+  ]
 }

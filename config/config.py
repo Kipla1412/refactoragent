@@ -153,11 +153,11 @@ class Config(BaseModel):
     
     @property
     def iam_jwks_url(self):
-        return os.environ.get("IAM_JWKS_URL", "https://iam.drgodly.com/api/auth/jwks")
+        return os.environ.get("IAM_JWKS_URL")
 
     @property
     def iam_issuer(self):
-        return os.environ.get("IAM_ISSUER", "https://iam.drgodly.com")
+        return os.environ.get("IAM_ISSUER")
 
     @property
     def mcp_servers_config(self) -> dict[str, MCPServerConfig]:

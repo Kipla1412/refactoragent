@@ -1,12 +1,19 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
 env/
 venv/
+.venv/
 mlartifacts/
+
+.commandcode/
 # Environment
 .env
-.env.*
+
 
 # OS
 .DS_Store
@@ -22,3 +29,12 @@ session_*.json
 # Data
 data/
 patients/
+
+# Vault (audio cache)
+vault/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

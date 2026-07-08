@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, Callable, Awaitable
 from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType, AgentType
 from customagents.diarizeagent.diarizeprompt import DIARIZE_ROLE_MAP_PROMPT
+from customagents.voiceagent.voiceagent import translate_text
 from speechtospeech.hybrid.orchestrator import DiarizationOrchestrator
 from speechtospeech.hybrid.stt_provider import HybridSTTProvider
 from speechtospeech.webvad import VoiceActivityDetector
@@ -62,8 +63,6 @@ class DiarizeAgent(Agent):
         session_start = time.monotonic()
 
         try:
-            llm_client = self.session.client if self.session.client else None
-
             provider = HybridSTTProvider(
                 api_key=self.config.sarvam_api_key,
                 streaming_model=self.config.sarvam_stt_model,
@@ -72,8 +71,6 @@ class DiarizeAgent(Agent):
                 language_code="unknown",
                 sample_rate=16000,
                 num_speakers=num_speakers,
-                llm_client=llm_client,
-                llm_model=self.config.model_name,
                 session_id=self.session.session_id,
             )
 
@@ -96,6 +93,18 @@ class DiarizeAgent(Agent):
             # Wrap the orchestration in an MLflow span
             async with self.session.trace_agent_run("hybrid_diarization"):
                 final_transcript = await orchestrator.run(audio_stream)
+
+            if final_transcript and self.session.client:
+                try:
+                    final_transcript = await translate_text(
+                        self.session.client,
+                        final_transcript,
+                        target_language="en",
+                        source_language="unknown",
+                    )
+                    logger.info("DiarizeAgent: transcript translated to English")
+                except Exception as e:
+                    logger.warning("DiarizeAgent: translation failed: %s", e)
 
             session_duration = time.monotonic() - session_start
             transcript_len = len(final_transcript or "")
