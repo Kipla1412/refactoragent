@@ -88,6 +88,20 @@ class HookConfig(BaseModel):
             raise ValueError("Hook must either have 'command' or 'script'")
         return self
 
+class WikiConfig(BaseModel):
+    enabled: bool = True
+    root_path: str = "/home/kipla/aipipeline/aiplatform/storage/wiki"
+
+class Neo4jConfig(BaseModel):
+    enabled: bool = True
+    uri: str = "bolt://localhost:7687"
+    user: str = "neo4j"
+    password: str = "password123"
+
+class KnowledgeConfig(BaseModel):
+    wiki: WikiConfig = Field(default_factory=WikiConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+
 class Config(BaseModel):
     
     model: ModelConfig = Field(default_factory=ModelConfig)
@@ -108,6 +122,8 @@ class Config(BaseModel):
 
     developer_instructions: str | None = None
     user_instructions: str | None = None
+
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
     debug: bool = False
 
@@ -175,6 +191,22 @@ class Config(BaseModel):
     @property
     def fhir_base_url(self):
         return os.environ.get("FHIR_BASE_URL")
+
+    @property
+    def wiki_root_path(self) -> str:
+        return os.environ.get("WIKI_ROOT_PATH", self.knowledge.wiki.root_path)
+
+    @property
+    def neo4j_uri(self) -> str:
+        return os.environ.get("NEO4J_URI", self.knowledge.neo4j.uri)
+
+    @property
+    def neo4j_user(self) -> str:
+        return os.environ.get("NEO4J_USER", self.knowledge.neo4j.user)
+
+    @property
+    def neo4j_password(self) -> str:
+        return os.environ.get("NEO4J_PASSWORD", self.knowledge.neo4j.password)
     
     @property
     def mlflow_enabled(self) -> bool:
