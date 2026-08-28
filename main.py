@@ -21,8 +21,15 @@ class CLI:
         self.config = config
         self.tui = TUI(config, console)
 
+    @staticmethod
+    def _default_role_prompt() -> str:
+        return (
+            "You are a capable AI coding assistant. Help the user complete "
+            "their tasks by using the tools available to you when needed."
+        )
+
     async def run_single(self, message: str) -> str | None:
-        system_prompt = get_system_prompt(self.config, role_prompt)
+        system_prompt = get_system_prompt(self.config, self._default_role_prompt())
         async with Agent(self.config, system_prompt) as agent:
             self.agent = agent
             return await self._process_message(message)
@@ -37,7 +44,7 @@ class CLI:
             ],
         )
 
-        system_prompt = get_system_prompt(self.config, role_prompt)
+        system_prompt = get_system_prompt(self.config, self._default_role_prompt())
         async with Agent(
             self.config,
             system_prompt,

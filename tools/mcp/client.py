@@ -6,7 +6,7 @@ from typing import Any
 from config.config import MCPServerConfig
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport, StdioTransport, StreamableHttpTransport
-
+import asyncio
 
 class MCPServerStatus(str, Enum):
     DISCONNECTED = "disconnected"
@@ -38,6 +38,8 @@ class MCPClient:
         self._client: Client | None = None
 
         self._tools: dict[str, MCPToolInfo] = dict()
+        #change this 
+        self._operation_lock = asyncio.Lock()
 
     @property
     def tools(self) -> list[MCPToolInfo]:
@@ -103,73 +105,75 @@ class MCPClient:
             raise
 
     async def disconnect(self) -> None:
-        if self._client:
-            await self._client.__aexit__(None, None, None)
-            self._client = None
+        async with self._operation_lock:
+            if self._client:
+                await self._client.__aexit__(None, None, None)
+                self._client = None
 
-        self._tools.clear()
-        self.status = MCPServerStatus.DISCONNECTED
+            self._tools.clear()
+            self.status = MCPServerStatus.DISCONNECTED
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]):
-       
-        if not self._client or self.status != MCPServerStatus.CONNECTED:
-            raise RuntimeError(f"Not connected to server {self.name}")
+
+        async with self._operation_lock:
+            if not self._client or self.status != MCPServerStatus.CONNECTED:
+                raise RuntimeError(f"Not connected to server {self.name}")
 
 
-        try: 
+            try: 
 
-            result = await self._client.call_tool(tool_name, arguments)
+                result = await self._client.call_tool(tool_name, arguments)
 
-            output = []
-            for item in result.content:
-                try:
-                    if hasattr(item, "text"):
-                        output.append(str(item.text))
-                    elif hasattr(item, "content"):
-                        # Handle nested content objects
-                        content = item.content
-                        if isinstance(content, (int, float)):
-                            output.append(str(content))
-                        elif isinstance(content, str):
-                            output.append(content)
-                        else:
-                            output.append(str(content))
-                    else:
-                        # Convert any type to string
-                        output.append(str(item))
-                except Exception as e:
-                    # Fallback conversion
+                output = []
+                for item in result.content:
                     try:
-                        output.append(str(item))
-                    except Exception:
-                        output.append(f"Unable to convert item to string: {type(item)}")
+                        if hasattr(item, "text"):
+                            output.append(str(item.text))
+                        elif hasattr(item, "content"):
+                            # Handle nested content objects
+                            content = item.content
+                            if isinstance(content, (int, float)):
+                                output.append(str(content))
+                            elif isinstance(content, str):
+                                output.append(content)
+                            else:
+                                output.append(str(content))
+                        else:
+                            # Convert any type to string
+                            output.append(str(item))
+                    except Exception as e:
+                        # Fallback conversion
+                        try:
+                            output.append(str(item))
+                        except Exception:
+                            output.append(f"Unable to convert item to string: {type(item)}")
 
-            # Ensure final output is a string
-            final_output = "\n".join(output) if output else ""
-            
-            return {
-                "output": final_output,
-                "is_error": result.is_error,
-            }
+                # Ensure final output is a string
+                final_output = "\n".join(output) if output else ""
+                
+                return {
+                    "output": final_output,
+                    "is_error": result.is_error,
+                }
 
-        except Exception as e:
-            # Handle FastMCP validation errors specifically
-            error_msg = str(e)
-            if "is not of type" in error_msg and "string" in error_msg:
-                # Extract the numeric value and convert to string
-                import re
-                numeric_match = re.search(r'(\d+)\s+is not of type', error_msg)
-                if numeric_match:
-                    numeric_value = numeric_match.group(1)
-                    return {
-                        "output": numeric_value,
-                        "is_error": False,
-                    }
-            
-            print(f"\n[MCP TOOL ERROR] {tool_name}")
-            print(str(e))
+            except Exception as e:
+                # Handle FastMCP validation errors specifically
+                error_msg = str(e)
+                if "is not of type" in error_msg and "string" in error_msg:
+                    # Extract the numeric value and convert to string
+                    import re
+                    numeric_match = re.search(r'(\d+)\s+is not of type', error_msg)
+                    if numeric_match:
+                        numeric_value = numeric_match.group(1)
+                        return {
+                            "output": numeric_value,
+                            "is_error": False,
+                        }
+                
+                print(f"\n[MCP TOOL ERROR] {tool_name}")
+                print(str(e))
 
-            return {
-                "output": f"MCP tool failed: {str(e)}",
-                "is_error": True,
-            }
+                return {
+                    "output": f"MCP tool failed: {str(e)}",
+                    "is_error": True,
+                }

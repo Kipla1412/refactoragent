@@ -24,6 +24,11 @@ class Agent:
         self.session: Session = Session(self.config)
         self.agent_type = agent_type
         self.session.agent_name = self.__class__.__name__
+        # Override this on subclasses that must use tools on every turn
+        # (e.g. document retrieval must search before answering).
+        self.force_tool_choice = False
+        # Restrict which tools the agent may see. None means all tools.
+        self.allowed_tool_names: list[str] | None = None
         
         if confirmation_callback is not None:
             self.session.approval_manager.confirmation_callback = confirmation_callback
@@ -97,12 +102,24 @@ class Agent:
 
             tool_schemas = self.session.tool_registry.get_schemas()
 
+            if self.allowed_tool_names is not None:
+                allowed = set(self.allowed_tool_names)
+                tool_schemas = [
+                    schema for schema in tool_schemas
+                    if schema.get("name") in allowed
+                ]
+
             tool_calls: list[ToolCall] = []
             usage: TokenUsage | None = None
 
             async for event in self.session.client.chat_completion(
                 self.session.context_manager.get_messages(),
                 tools=tool_schemas if tool_schemas else None,
+                tool_choice=(
+                    "required"
+                    if self.force_tool_choice and turn_num == 0
+                    else None
+                ),
             ):
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
@@ -175,112 +192,54 @@ class Agent:
                     tool_name=tool_call.name,
                     args=tool_call.arguments,
                 )
-                # parsed_args = parse_tool_call_arguments(tool_call.arguments)
-                
+
                 print(f"DEBUG: Tool {tool_call.name} called with args: {tool_call.arguments}")
-                
-                if self.session.mlflow_tracker:
 
-                    with self.session.mlflow_tracker.start_span(
-                        name=tool_call.name,
-                        attributes={
-                            "span_type": "tool",
-                            "tool.name": tool_call.name,
-                            "tool.args": json.dumps(tool_call.arguments)[:500],
-                        },
-                    ):
-                        # result = await self.session.tool_registry.invoke(
-                        #     tool_call.name,
-                        #     tool_call.arguments,
-                        #     self.config.cwd,
-                        #     self.session.hook_system,
-                        #     self.session.approval_manager,
-                        # )
-
-                        # Wrap the tool invocation in a task so it runs in the background
-                        invocation_task = asyncio.create_task(
-                            self.session.tool_registry.invoke(
-                                tool_call.name,
-                                tool_call.arguments,
-                                self.config.cwd,
-                                self.session.hook_system,
-                                self.session.approval_manager,
-                            )
-                        )
-
-                        # While the tool is running (it might be paused waiting for approval!)
-                        # We "drain" the event queue and yield requests to the frontend
-                        result = None
-                        while not invocation_task.done():
-                            try:
-                                # Check queue every 0.1s. If an approval is added, yield it immediately.
-                                event_data = await asyncio.wait_for(self.session.event_queue.get(), timeout=0.1)
-                                data = event_data["data"]
-                                yield AgentEvent.approval_request(
-                                    approval_id=data["approval_id"],
-                                    tool_name=data["tool_name"],
-                                    description=data["description"],
-                                    params=data.get("params"),
-                                    agent=self.agent_type
-                                )
-                            except asyncio.TimeoutError:
-                                continue 
-                        
-                        result = await invocation_task
-
-                else:
-
-                    invocation_task = asyncio.create_task(
-                        self.session.tool_registry.invoke(
-                            tool_call.name,
-                            tool_call.arguments,
-                            self.config.cwd,
-                            self.session.hook_system,
-                            self.session.approval_manager,
-                        )
-                    )
-
-                    result = None
-
-                    while not invocation_task.done():
-
-                        try:
-
-                            event_data = await asyncio.wait_for(
-                                self.session.event_queue.get(),
-                                timeout=0.1
-                            )
-
-                            data = event_data["data"]
-
-                            yield AgentEvent.approval_request(
-                                approval_id=data["approval_id"],
-                                tool_name=data["tool_name"],
-                                description=data["description"],
-                                params=data.get("params"),
-                                agent=self.agent_type
-                            )
-
-                        except asyncio.TimeoutError:
-                            continue
-
-                    result = await invocation_task
-                
-
-                    yield AgentEvent.tool_call_complete(
-                        tool_call.call_id,
+                invocation_task = asyncio.create_task(
+                    self.session.tool_registry.invoke(
                         tool_call.name,
-                        result,
-                        agent=self.agent_type
+                        tool_call.arguments,
+                        self.config.cwd,
+                        self.session.hook_system,
+                        self.session.approval_manager,
                     )
+                )
 
-                    tool_call_results.append(
-                        ToolResultMessage(
-                            tool_call_id=tool_call.call_id,
-                            content=result.to_model_output(),
-                            is_error=not result.success,
+                # While the tool is running (it might be paused waiting for
+                # approval), drain the event queue and yield approval requests.
+                while not invocation_task.done():
+                    try:
+                        event_data = await asyncio.wait_for(
+                            self.session.event_queue.get(),
+                            timeout=0.1
                         )
+                        data = event_data["data"]
+                        yield AgentEvent.approval_request(
+                            approval_id=data["approval_id"],
+                            tool_name=data["tool_name"],
+                            description=data["description"],
+                            params=data.get("params"),
+                            agent=self.agent_type
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+
+                result = await invocation_task
+
+                yield AgentEvent.tool_call_complete(
+                    tool_call.call_id,
+                    tool_call.name,
+                    result,
+                    agent=self.agent_type
+                )
+
+                tool_call_results.append(
+                    ToolResultMessage(
+                        tool_call_id=tool_call.call_id,
+                        content=result.to_model_output(),
+                        is_error=not result.success,
                     )
+                )
 
             for tool_result in tool_call_results:
                 self.session.context_manager.add_tool_result(

@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from api.auth import decode_token
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
+from agent.events import AgentEventType
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +116,12 @@ async def diarized_consultation(ws: WebSocket) -> None:
             max_session_duration=600.0,
             on_partial=ws_on_partial,
         ):
-            if event.type == "agent_error":
+            if event.type == AgentEventType.AGENT_ERROR:
                 await safe_send_json({
                     "type": "error",
                     "message": event.data.get("error", "Unknown error"),
                 })
-            elif event.type == "text_complete":
+            elif event.type == AgentEventType.TEXT_COMPLETE:
                 final_text = event.data.get("content", "")
                 await safe_send_json({
                     "type": "final",

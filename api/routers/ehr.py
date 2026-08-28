@@ -7,13 +7,9 @@ import uuid
 from typing import List, Dict, Any
 from api.auth import require_permission
 from customagents.factory import AgentFactory
-from customagents.sessionmanager import SessionManager
 from agent.events import AgentType
 
 router = APIRouter(prefix="/agent")
-
-session_manager = SessionManager()
-
 
 class MCPRequest(BaseModel):
     message: str
@@ -112,46 +108,26 @@ async def mcp_chat(req: MCPRequest, request: Request):
 
     session_id = req.session_id or str(uuid.uuid4())
 
+    session_manager = request.app.state.session_manager
     # shared session
     session = await session_manager.get_session(
-        user_id,
-        config
+        user_id=user_id,
+        session_id=session_id,
+        config=config
     )
 
+    # 1. Capture request token
+    current_token = request.state.token
     # inject runtime token
-    session.auth_token = request.state.token
-
-    print("REQUEST TOKEN:", request.state.token)
+    session.auth_token = current_token
 
     await session.initialize()
 
-    # # reinitialize MCP with fresh token
-    # session.mcp_manager._initialized = False
+    # 2. Re-initialize MCP Manager if auth token changed or not yet initialized
+    await session.mcp_manager.initialize(auth_token=current_token)
 
-    # await session.mcp_manager.initialize(
-    #     auth_token=session.auth_token
-    # )
-
-    # session.mcp_manager.register_tools(
-    #     session.tool_registry
-    # )
-
-    # current_token = request.state.token
-
-    # if (
-    #     not getattr(session, "mcp_initialized", False)
-    #     or session.auth_token != current_token
-    # ):
-
-    #     session.auth_token = current_token
-
-    #     await session.mcp_manager.shutdown()
-
-    #     await session.mcp_manager.initialize(
-    #         auth_token=current_token
-    #     )
-
-    #     session.mcp_initialized = True
+    # 3. Register freshly initialized client tools to current session registry
+    session.mcp_manager.register_tools(session.tool_registry)
 
     # create MCP agent
     agent = AgentFactory.create(
@@ -219,7 +195,7 @@ async def mcp_chat(req: MCPRequest, request: Request):
 
     return StreamingResponse(
         event_stream(),
-        media_type="application/json",
+        media_type="application/x-ndjson",
         headers={
             "X-Session-ID": session_id
         }

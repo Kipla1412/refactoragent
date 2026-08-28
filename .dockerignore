@@ -70,3 +70,5 @@ patient_data/
 docs/
 *.md
 !README.md
+.commandcode
+

@@ -4,16 +4,15 @@ from customagents.reportagent.soapagent import SOAPAgent
 from customagents.reportagent.assesment import AssessmentAgent
 from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.consultagent.consultagent import ConsultingAgent
-from customagents.previsitagent.intakeagent import IntakeAgent
 from customagents.ehragent.ehragent import EHRAgent
 from customagents.reportagent.clinicalextraction import ClinicalExtractionAgent
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from customagents.diarizeagent.diarizeagent import DiarizeAgent
 from customagents.medicalagent.medicalagent import MedicalAgent
+from customagents.documentagent.documentagent import DocumentRetrievalAgent
 from config.config import Config
 from agent.session import Session
-from abc import ABC, abstractmethod
 
 class AgentFactory:
     """
@@ -34,6 +33,7 @@ class AgentFactory:
         "voice_consult": VoiceConsultAgent,
         "diarize": DiarizeAgent,
         "medical": MedicalAgent,
+        "document_retrieval": DocumentRetrievalAgent,
     }
 
     @classmethod

@@ -11,75 +11,71 @@ class MCPManager:
         self.config = config
         self._clients: dict[str, MCPClient] = {}
         self._initialized = False
+        self._auth_token: str | None = None
+        self._lock = asyncio.Lock()
 
     async def initialize(self, auth_token: str | None = None) -> None:
-        
-        if self._initialized:
-            return
+        async with self._lock:
+            # Skip initialization if already active with the identical auth token
+            if self._initialized and self._auth_token == auth_token:
+                return
 
-        mcp_configs = self.config.mcp_servers_config
+            mcp_configs = self.config.mcp_servers_config
 
-        if not mcp_configs:
-            return
+            if self._initialized:
+                await self._shutdown_unlocked()
 
-        for name, server_config in mcp_configs.items():
-            if not server_config.enabled:
-                continue
+            if not mcp_configs:
+                self._auth_token = auth_token
+                self._initialized = True
+                return
 
-            headers = dict(server_config.headers or {})
+            for name, server_config in mcp_configs.items():
+                if not server_config.enabled:
+                    continue
 
-            # inject runtime auth
-            if auth_token:
-                headers["Authorization"] = (
-                    f"Bearer {auth_token}"
+                headers = dict(server_config.headers or {})
+
+                # Inject dynamic Bearer token
+                if auth_token:
+                    headers["Authorization"] = f"Bearer {auth_token}"
+
+                runtime_config = server_config.model_copy(
+                    update={"headers": headers}
                 )
-            print("AUTH TOKEN:", auth_token)
-            print("HEADERS:", headers)
-            runtime_config = server_config.model_copy(
-                update={
-                    "headers": headers
-                }
+
+                self._clients[name] = MCPClient(
+                    name=name,
+                    config=runtime_config,
+                    cwd=self.config.cwd,
+                )
+
+            connection_tasks = [
+                asyncio.wait_for(
+                    client.connect(),
+                    timeout=client.config.startup_timeout_sec,
+                )
+                for client in self._clients.values()
+            ]
+
+            results = await asyncio.gather(
+                *connection_tasks,
+                return_exceptions=True
             )
 
-            self._clients[name] = MCPClient(
-                name=name,
-                config=runtime_config,
-                cwd=self.config.cwd,
-            )
+            for result in results:
+                if isinstance(result, Exception):
+                    print(f"[MCP CONNECTION ERROR] {result}")
 
-        # connection_tasks = [
-        #     asyncio.wait_for(
-        #         client.connect(),
-        #         timeout=client.config.startup_timeout_sec,
-        #     )
-        #     for name, client in self._clients.items()
-        # ]
-
-        # await asyncio.gather(*connection_tasks, return_exceptions=True)
-
-        # self._initialized = True
-
-        connection_tasks = [
-            asyncio.wait_for(
-                client.connect(),
-                timeout=client.config.startup_timeout_sec,
-            )
-            for client in self._clients.values()
-        ]
-
-        results = await asyncio.gather(
-            *connection_tasks,
-            return_exceptions=True
-        )
-
-        for result in results:
-            if isinstance(result, Exception):
-                print("[MCP CONNECTION ERROR]", result)
-
-        self._initialized = True
+            self._auth_token = auth_token
+            self._initialized = True
 
     def register_tools(self, registry: ToolRegistry) -> int:
         count = 0
+
+        # Drop any previously-registered MCP tools so re-initializing with a
+        # fresh auth token never leaves stale tools behind in the registry.
+        registry.clear_mcp_tools()
 
         for client in self._clients.values():
             if client.status != MCPServerStatus.CONNECTED:
@@ -92,27 +88,32 @@ class MCPManager:
                     config=self.config,
                     name=f"{client.name}__{tool_info.name}",
                 )
-                registry.register(mcp_tool)
+                registry.register_mcp(mcp_tool)
                 count += 1
 
         return count
 
     async def shutdown(self) -> None:
-        disconnection_tasks = [client.disconnect() for client in self._clients.values()]
+        async with self._lock:
+            await self._shutdown_unlocked()
+
+    async def _shutdown_unlocked(self) -> None:
+        disconnection_tasks = [
+            client.disconnect() for client in self._clients.values()
+        ]
 
         await asyncio.gather(*disconnection_tasks, return_exceptions=True)
 
         self._clients.clear()
+        self._auth_token = None
         self._initialized = False
 
     def get_all_servers(self) -> list[dict[str, Any]]:
-        servers = []
-        for name, client in self._clients.items():
-            server_info = {
+        return [
+            {
                 "name": name,
                 "status": client.status.value,
                 "tools": len(client.tools),
             }
-            servers.append(server_info)
-
-        return servers
+            for name, client in self._clients.items()
+        ]

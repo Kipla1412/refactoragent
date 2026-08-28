@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 import json
@@ -7,12 +7,8 @@ import traceback
 from api.auth import require_permission
 from agent.events import AgentType
 from customagents.factory import AgentFactory
-from customagents.sessionmanager import SessionManager
 
 router = APIRouter(prefix="/agent")
-
-# Global session manager
-session_manager = SessionManager()
 
 class ConversationRequest(BaseModel):
     conversation: List[str] = Field(
@@ -343,7 +339,7 @@ async def recommend_questions_api(request: Request, data: ConversationRequest):
     
     user_id = request.state.user["sub"]
     config = request.app.state.config
-    session = await session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(user_id, config)
 
     agent = AgentFactory.create(AgentType.DOC, config, session)
 
@@ -401,7 +397,7 @@ async def generate_soap_api(request: Request, data: ConversationRequest):
     
     user_id = request.state.user["sub"]
     config = request.app.state.config
-    session = await session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(user_id, config)
 
     agent = AgentFactory.create(AgentType.SOAP, config, session)
 
@@ -465,7 +461,7 @@ async def generate_assessment_api(request: Request, data: ConversationRequest):
     
     user_id = request.state.user["sub"]
     config = request.app.state.config
-    session = await session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(user_id, config)
 
     agent = AgentFactory.create(AgentType.ASSESSMENT, config, session)
 
@@ -523,7 +519,7 @@ async def consultation_workflow(
 
     config = request.app.state.config
 
-    session = await session_manager.get_session(
+    session = await request.app.state.session_manager.get_session(
         user_id,
         config
     )
@@ -605,7 +601,7 @@ async def generate_clinical_extraction(
 
     config = request.app.state.config
 
-    session = await session_manager.get_session(
+    session = await request.app.state.session_manager.get_session(
         user_id,
         config
     )

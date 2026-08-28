@@ -57,6 +57,7 @@ class LLMClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = True,
+        tool_choice: str | dict[str, Any] | None = None,
         **kwargs_extra,
     ) -> AsyncGenerator[StreamEvent, None]:
         client = self.get_client()
@@ -71,7 +72,7 @@ class LLMClient:
 
         if tools:
             kwargs["tools"] = self._build_tools(tools)
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = tool_choice if tool_choice is not None else "auto"
 
         for attempt in range(self._max_retries + 1):
             try:

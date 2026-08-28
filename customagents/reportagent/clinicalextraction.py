@@ -106,22 +106,10 @@ class ClinicalExtractionAgent(Agent):
             )
 
             return {
-                "conditions": parsed.get(
-                    "conditions" or
-                    []
-                ),
-                "observations": parsed.get(
-                    "observations" or
-                    []
-                ),
-                "medicationRequests": parsed.get(
-                    "medicationRequests" or
-                    []
-                ),
-                "serviceRequests": parsed.get(
-                    "serviceRequests" or
-                    []
-                )
+                "conditions": parsed.get("conditions", []),
+                "observations": parsed.get("observations", []),
+                "medicationRequests": parsed.get("medicationRequests", []),
+                "serviceRequests": parsed.get("serviceRequests", []),
             }
 
         except Exception as e:

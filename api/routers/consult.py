@@ -4,16 +4,12 @@ import json
 from api.auth import require_permission
 from agent.events import AgentType, AgentEvent
 from customagents.factory import AgentFactory
-from customagents.sessionmanager import SessionManager
 from fastapi.responses import StreamingResponse
 from fastapi.encoders import jsonable_encoder
 import uuid
 from typing import Any, Dict, List
 
 router = APIRouter(prefix="/agent")
-
-# global session manager
-session_manager = SessionManager()
 
 # Request Model
 class ChatRequest(BaseModel):
@@ -114,7 +110,7 @@ async def consult_api(request: Request, data: ChatRequest):
     config = request.app.state.config
 
     # get shared session (memory per user)
-    session = await session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(user_id, config)
 
     # create agent with SAME session
     agent = AgentFactory.create(AgentType.CONSULT, config, session)
@@ -131,7 +127,7 @@ async def consult_api(request: Request, data: ChatRequest):
                 else:
                     event_data = event
                 
-                yield json.dumps(jsonable_encoder(event)) + "\n"
+                yield json.dumps(jsonable_encoder(event_data)) + "\n"
         except Exception as e:
             # Catch streaming errors so the connection doesn't just hang
             yield json.dumps({"type": "error", "data": str(e)}) + "\n"
@@ -191,7 +187,7 @@ async def intake_stream(request: Request, data: ChatRequest):
     user_id = request.state.user["sub"]
     config = request.app.state.config
 
-    session = await session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(user_id, config)
 
     agent = AgentFactory.create(AgentType.INTAKE, config, session)
 

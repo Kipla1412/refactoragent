@@ -3,6 +3,7 @@ from enum import Enum
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from pydantic import BaseModel, Field, model_validator
 from speechtospeech.providers.stt.factory import create_stt_provider
 from speechtospeech.providers.tts.factory import create_tts_provider
@@ -11,6 +12,23 @@ from speechtospeech.speechtotext.sttengine import TranscriptionEngine
 from speechtospeech.texttospeech.ttsengine import TTSEngine
 from dotenv import load_dotenv
 load_dotenv()
+
+
+def _opensearch_url_host(url: str) -> str:
+    return urlparse(url).hostname or "localhost"
+
+
+def _opensearch_url_port(url: str) -> int:
+    parsed = urlparse(url)
+    return parsed.port or (443 if parsed.scheme == "https" else 9200)
+
+
+def _opensearch_url_user(url: str) -> str:
+    return urlparse(url).username or "admin"
+
+
+def _opensearch_url_password(url: str) -> str | None:
+    return urlparse(url).password
 
 class ModelConfig(BaseModel):
     name: str = "gpt-4.1" #"gpt-4o-mini" #"mistralai/devstral-2512:free"
@@ -216,6 +234,7 @@ class Config(BaseModel):
     def mlflow_tracking_uri(self) -> str:
         return os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")
 
+
     @property
     def mlflow_experiment_name(self) -> str:
         return os.environ.get("MLFLOW_EXPERIMENT_NAME")
@@ -336,7 +355,6 @@ class Config(BaseModel):
         return os.environ.get("TTS_SPEAKER", "anushka")
 
     @property
-    @property
     def tts_engine(self):
 
         if not hasattr(self, "_tts_engine"):
@@ -362,6 +380,79 @@ class Config(BaseModel):
 
         return self._tts_engine
 
-        
+    
+    @property
+    def jina_api_key(self) -> str | None:
+        return os.environ.get("JINA_API_KEY")
+
+    @property
+    def jina_api_url(self) -> str:
+        return os.environ.get("JINA_BASE_URL","https://api.jina.ai/v1/embeddings")
+
+    @property
+    def jina_model(self) -> str:
+        return os.environ.get("JINA_MODEL", "jina-embeddings-v3")
+
+    @property
+    def jina_dimensions(self) -> int:
+        return int(os.environ.get("JINA_DIMENSIONS", "1024"))
+
+    @property
+    def opensearch_url(self) -> str | None:
+        """Full OpenSearch URL (e.g. ``http://admin:pass@host:9200``).
+
+        When set, it takes precedence over OPENSEARCH_HOST/PORT/USER/PASSWORD.
+        """
+        return os.environ.get("OPENSEARCH_URL")
+
+    @property
+    def opensearch_host(self) -> str:
+        url = self.opensearch_url
+        if url:
+            return _opensearch_url_host(url)
+        return os.environ.get("OPENSEARCH_HOST", "localhost")
+
+    @property
+    def opensearch_port(self) -> int:
+        url = self.opensearch_url
+        if url:
+            return _opensearch_url_port(url)
+        return int(os.environ.get("OPENSEARCH_PORT", "9200"))
+
+    @property
+    def opensearch_user(self) -> str:
+        url = self.opensearch_url
+        if url:
+            return _opensearch_url_user(url)
+        return os.environ.get("OPENSEARCH_USER", "admin")
+
+    @property
+    def opensearch_password(self) -> str:
+        url = self.opensearch_url
+        if url:
+            return _opensearch_url_password(url)
+        return os.environ.get("OPENSEARCH_PASSWORD", None)
+
+    @property
+    def opensearch_ssl(self) -> bool:
+        if self.opensearch_url:
+            return self.opensearch_url.startswith("https://")
+        return os.environ.get("OPENSEARCH_SSL", "false").lower() == "true"
+
+    @property
+    def medical_document_index(self) -> str:
+        """Return the OpenSearch index used for medical document retrieval."""
+        return os.environ.get(
+            "MEDICAL_DOCUMENT_INDEX",
+            "clinical_documents",
+        )  
+    @property
+    def opensearch_search_pipeline(self) -> str:
+        """Return the OpenSearch hybrid search pipeline."""
+        return os.environ.get(
+            "OPENSEARCH_SEARCH_PIPELINE",
+            "hybrid-rrf-pipeline",
+        ) 
+     
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

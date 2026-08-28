@@ -28,9 +28,23 @@ class ToolRegistry:
         self._tools[tool.name] = tool
         logger.debug(f"Registered tool: {tool.name}")
 
+    def register_mcp(self, tool: Tool) -> None:
+        if tool.name in self._mcp_tools:
+            logger.warning(f"Overwriting existing MCP tool: {tool.name}")
+
+        self._mcp_tools[tool.name] = tool
+        logger.debug(f"Registered MCP tool: {tool.name}")
+
+    def clear_mcp_tools(self) -> None:
+        self._mcp_tools.clear()
+
     def unregister(self, name: str) -> bool:
         if name in self._tools:
             del self._tools[name]
+            return True
+
+        if name in self._mcp_tools:
+            del self._mcp_tools[name]
             return True
 
         return False
@@ -48,6 +62,9 @@ class ToolRegistry:
         tools: list[Tool] = []
 
         for tool in self._tools.values():
+            tools.append(tool)
+
+        for tool in self._mcp_tools.values():
             tools.append(tool)
 
         if self.config.allowed_tools:
