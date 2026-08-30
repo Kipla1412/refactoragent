@@ -11,6 +11,7 @@ from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from customagents.diarizeagent.diarizeagent import DiarizeAgent
 from customagents.medicalagent.medicalagent import MedicalAgent
 from customagents.documentagent.documentagent import DocumentRetrievalAgent
+from customagents.pdfagent.pdfagent import PDFChatAgent
 from config.config import Config
 from agent.session import Session
 
@@ -34,6 +35,7 @@ class AgentFactory:
         "diarize": DiarizeAgent,
         "medical": MedicalAgent,
         "document_retrieval": DocumentRetrievalAgent,
+        "pdf_chat": PDFChatAgent,
     }
 
     @classmethod

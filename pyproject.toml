@@ -27,6 +27,8 @@ dependencies = [
     "sarvamai",
     "neo4j",
     "opensearch-py>=3.2.0",
+    "pypdf",
+    "pymupdf",
 ]
 
 [build-system]

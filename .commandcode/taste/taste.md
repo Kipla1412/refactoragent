@@ -15,6 +15,7 @@ See [workflow/taste.md](workflow/taste.md)
 - After a multi-file fix, explicitly summarize exactly what was changed (files touched and behavioral changes) so the user can spot regressions — e.g., "what changes are u make in my code" signals they expected a clear change inventory. Confidence: 0.5
 - When the assistant proposes an improvement, it should proactively justify the value and risk (e.g., "most valuable, low-risk improvement") before making the change, and hold off until the user gives a go-ahead. Confidence: 0.5
 - The user reports problems by pasting raw logs/traces directly (NDJSON streaming-event dumps, backend stack traces like `opensearchpy` errors) and expects the agent to read and diagnose them directly rather than asking for more context. Confidence: 0.5
+- Wants concrete, copy-pasteable answers (full `docker run` commands, `curl` commands, config snippets) rather than general explanations — asks "what i do da" / "how i check this da" and is satisfied by ready-to-run snippets. Also wants a specific value/name handed to them (e.g., "can u give me a model name please" → recommend one concrete model, not an open-ended menu). Confidence: 0.65
 
 
 # diarization

@@ -14,6 +14,7 @@ from api.routers.agent import router as agent_router
 from api.routers.consult import router as consult_router
 from api.routers.ehr import router as ehr_router
 from api.routers.document import router as doc_router
+from api.routers.pdf import router as pdf_router
 
 from api.wsrouters.webs2s import router as webs2s_router
 from api.wsrouters.diarize import router as diarize_router
@@ -102,6 +103,7 @@ def create_app():
     app.include_router(consult_router, prefix="/api")
     app.include_router(ehr_router, prefix="/api")
     app.include_router(doc_router, prefix="/api")
+    app.include_router(pdf_router, prefix="/api")
 
     app.include_router(webs2s_router, prefix="/ws")
     app.include_router(diarize_router, prefix="/ws")

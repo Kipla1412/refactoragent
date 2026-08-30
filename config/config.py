@@ -154,6 +154,11 @@ class Config(BaseModel):
         return os.environ.get("BASE_URL")
 
     @property
+    def vision_model_name(self) -> str | None:
+        """Vision-capable model used for OCR. Defaults to the main model."""
+        return os.environ.get("VISION_MODEL_NAME") or self.model.name
+
+    @property
     def model_name(self) -> str:
         return self.model.name
 
