@@ -7,6 +7,7 @@ from prompts.system import get_system_prompt
 from .consultprompt import CONSULT_PROMPT
 
 class ConsultingAgent(Agent):
+
     def __init__(self, config, session=None):
         """
         Initialize with a specific prompt. 

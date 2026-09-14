@@ -93,23 +93,31 @@ class HybridSTTProvider:
     # Post-processing pipeline
     # ------------------------------------------------------------------
 
-    async def finalize_with_diarization(self) -> str:
-        """Execute the batch diarization pipeline and return the transcript."""
+    async def finalize_with_diarization(self) -> list[dict[str, Any]]:
+        """Execute the batch diarization pipeline and return raw segments.
+
+        Each segment is a dict with ``speaker_id`` and ``text``. Speaker
+        relabeling (Doctor/Patient) is deliberately left to the caller so it
+        can use either the LLM role-mapping prompt or the heuristic fallback.
+        """
         wav_path = await self._buffer.get_wav_file()
 
         if wav_path is None:
-            logger.warning("No audio buffered, returning stream transcript")
-            return "\n".join(self._streaming_transcript_lines)
+            logger.warning("No audio buffered, no diarization segments")
+            return []
 
         segments = await self._run_batch_diarization(wav_path)
 
         if not segments:
-            logger.warning("Batch diarization returned no segments, falling back")
-            return "\n".join(self._streaming_transcript_lines)
+            logger.warning("Batch diarization returned no segments")
+            return []
 
-        transcript = _relabel_segments(segments)
         await self._buffer.cleanup()
-        return transcript
+        return segments
+
+    def get_streaming_transcript(self) -> str:
+        """Return the live streaming transcript captured during the session."""
+        return "\n".join(self._streaming_transcript_lines)
 
     async def _run_batch_diarization(self, wav_path: str) -> list[dict[str, Any]]:
         """Upload WAV to Sarvam job-based STT API with diarization enabled."""

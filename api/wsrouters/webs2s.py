@@ -6,7 +6,7 @@ import re
 import time
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
-from customagents.voiceagent.voiceagent import VoiceSession, translate_text
+from customagents.voiceagent.voiceagent import VoiceSession
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
@@ -19,14 +19,18 @@ router = APIRouter()
 
 _SCRIPT_MAP = [
     (r'[\u0B80-\u0BFF]', "ta-IN"),
-    (r'[\u0900-\u097F]', "hi-IN"),
-    (r'[\u0D00-\u0D7F]', "ml-IN"),
-    (r'[\u0C00-\u0C7F]', "te-IN"),
-    (r'[\u0C80-\u0CFF]', "kn-IN"),
-    (r'[\u0980-\u09FF]', "bn-IN"),
-    (r'[\u0A80-\u0AFF]', "gu-IN"),
-    (r'[\u0A00-\u0A7F]', "pa-IN"),
 ]
+
+_GREETINGS = {
+    "voice_intake": (
+        "Hello, I'm your medical intake assistant. I'll gather some "
+        "information before your visit. What's your full name?"
+    ),
+    "voice_consult": (
+        "Hi, I'm your medical assistant. What problem or symptom would "
+        "you like to discuss today?"
+    ),
+}
 
 
 def detect_language(text: str) -> str | None:
@@ -135,6 +139,20 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
     print("Pre-warming streaming providers...")
     await asyncio.gather(stt.connect(), tts.connect())
 
+    # Send the initial greeting and mark the agent ready for input.
+    greeting = _GREETINGS.get(agent_type)
+    if greeting:
+        try:
+            await safe_send_json({"type": "status", "status": "greeting"})
+            await safe_send_json({"type": "text", "text": greeting})
+            async for audio_bytes in voice_session.text_to_audio(greeting):
+                audio_payload = base64.b64encode(audio_bytes).decode("utf-8")
+                await safe_send_json({"type": "audio", "audio": audio_payload})
+        except Exception as e:
+            logger.error(f"Greeting playback failed: {e}")
+
+    await safe_send_json({"type": "status", "status": "ready"})
+
     transcript_queue = asyncio.Queue()
     active_response_task = None
 
@@ -150,12 +168,15 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
             except Exception as e:
                 logger.error(f"Error reading client audio bytes: {e}")
 
-        async def generate_and_send_response(transcript_text: str):
+        async def generate_and_send_response(transcript_text: str, source_language: str):
             try:
+                await safe_send_json({"type": "status", "status": "thinking"})
                 text_buffer = ""
                 audio_buffer_len = 0
                 async for response in voice_session.process_transcript_to_audio(
-                    transcript_text, target_language=patient_language
+                    transcript_text,
+                    target_language=patient_language,
+                    source_language=source_language,
                 ):
                     if not response:
                         continue
@@ -177,6 +198,8 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 if audio_buffer_len > 0:
                     print(f"[WS → Client] {{ type: \"audio\", audio: \"<b64 {audio_buffer_len} bytes>\" }}")
 
+                await safe_send_json({"type": "status", "status": "ready"})
+
             except asyncio.CancelledError:
                 logger.info("Response generation task explicitly cancelled.")
             except Exception as e:
@@ -189,22 +212,26 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 if not raw_text:
                     continue
 
+                is_final = transcript_data.get("is_final", True)
+
                 stt_language = transcript_data.get("language", "unknown")
                 unicode_detected = detect_language(raw_text)
 
                 detected = None
                 detection_source = None
 
-                if stt_language and stt_language not in ("unknown", "en-IN", "en"):
+                if stt_language in ("ta-IN", "ta"):
                     detected = stt_language
                     detection_source = "sarvam"
                 elif unicode_detected:
                     detected = unicode_detected
                     detection_source = "unicode"
-                    print(f"[LANG] Sarvam returned '{stt_language}', using Unicode fallback: {detected}")
+                elif stt_language in ("en-IN", "en"):
+                    detected = stt_language
+                    detection_source = "sarvam"
                 else:
-                    detected = None
-                    detection_source = "none"
+                    detected = "en-IN"
+                    detection_source = "default"
 
                 if detected:
                     if patient_language != detected:
@@ -218,35 +245,26 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                         except Exception as e:
                             logger.error(f"TTS update failed: {e}")
 
-                    english_text = await translate_text(
-                        voice_agent.session.client, raw_text,
-                        target_language="en", source_language=detected
-                    )
-                else:
-                    if patient_language not in ("en-IN", "en", None):
-                        patient_language = "en-IN"
-                        try:
-                            await tts.update_config(
-                                language_code="en-IN",
-                                speaker=config.sarvam_speaker
-                            )
-                        except Exception as e:
-                            logger.error(f"TTS reset failed: {e}")
-                    elif patient_language is None:
-                        patient_language = "en-IN"
+                source_language = detected
+                print(f"USER ({user_id}): {raw_text} (final={is_final})")
+                await safe_send_json({"type": "transcript", "text": raw_text})
 
-                    english_text = raw_text
-
-                print(f"USER ({user_id}): {english_text}")
-                await safe_send_json({"type": "transcript", "text": english_text})
-                await transcript_queue.put(english_text)
+                # Only final transcripts trigger an agent response. Partial
+                # transcripts update the live display but must not restart the
+                # agent/TTS pipeline (that churn tears down the TTS connection
+                # before audio can complete).
+                if is_final:
+                    await transcript_queue.put((raw_text, source_language))
 
         async def dispatch_responses():
             nonlocal active_response_task
             while True:
                 try:
-                    transcript = await transcript_queue.get()
+                    transcript, source_language = await transcript_queue.get()
+                except asyncio.CancelledError:
+                    break
 
+                try:
                     if active_response_task and not active_response_task.done():
                         print("Interrupting active speaking block for new phrase...")
                         active_response_task.cancel()
@@ -260,7 +278,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             pass
 
                     active_response_task = asyncio.create_task(
-                        generate_and_send_response(transcript)
+                        generate_and_send_response(transcript, source_language)
                     )
                 except asyncio.CancelledError:
                     break

@@ -46,8 +46,8 @@ class DiarizationOrchestrator:
     async def run(
         self,
         audio_stream: AsyncGenerator[bytes, None],
-    ) -> str:
-        """Execute the full session and return the final diarized transcript."""
+    ) -> list[dict[str, Any]]:
+        """Execute the full session and return raw diarization segments."""
         self._session_start = time.monotonic()
         capture_task: asyncio.Task[None] | None = None
         transcript_task: asyncio.Task[None] | None = None
@@ -79,11 +79,11 @@ class DiarizationOrchestrator:
             logger.info("DiarizationOrchestrator: flushing and finalizing...")
             await self.provider.flush()
 
-        final_transcript = await self.provider.finalize_with_diarization()
+        segments = await self.provider.finalize_with_diarization()
         await self.provider.close()
 
-        self._print_final(final_transcript)
-        return final_transcript
+        logger.info("DiarizationOrchestrator: got %d segments", len(segments))
+        return segments
 
     # ------------------------------------------------------------------
     # Concurrent task implementations
@@ -185,17 +185,6 @@ class DiarizationOrchestrator:
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _print_final(transcript: str) -> None:
-        print("\n" + "=" * 64)
-        print("FINAL DIARIZED TRANSCRIPT")
-        print("=" * 64)
-        if transcript.strip():
-            print(transcript)
-        else:
-            print("(no transcript produced)")
-        print("=" * 64)
 
 
 async def _default_partial_printer(transcript: dict[str, Any]) -> None:

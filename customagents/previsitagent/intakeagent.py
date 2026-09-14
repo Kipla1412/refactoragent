@@ -7,6 +7,7 @@ from prompts.system import get_system_prompt
 
 
 class IntakeAgent(Agent):
+
     def __init__(self, config, session=None):
         """
         Follows the Consult Agent pattern: 

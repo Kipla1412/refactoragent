@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import time
 from typing import Any, AsyncGenerator, Callable, Awaitable
 
 from agent.agent import Agent
 from agent.events import AgentEvent, AgentEventType, AgentType
+from client.response import StreamEventType
 from customagents.diarizeagent.diarizeprompt import DIARIZE_ROLE_MAP_PROMPT
 from customagents.voiceagent.voiceagent import translate_text
 from speechtospeech.hybrid.orchestrator import DiarizationOrchestrator
-from speechtospeech.hybrid.stt_provider import HybridSTTProvider
+from speechtospeech.hybrid.stt_provider import HybridSTTProvider, _relabel_segments
 from speechtospeech.webvad import VoiceActivityDetector
 
 logger = logging.getLogger(__name__)
@@ -92,7 +95,9 @@ class DiarizeAgent(Agent):
 
             # Wrap the orchestration in an MLflow span
             async with self.session.trace_agent_run("hybrid_diarization"):
-                final_transcript = await orchestrator.run(audio_stream)
+                segments = await orchestrator.run(audio_stream)
+
+            final_transcript = await self._label_segments(segments, provider)
 
             if final_transcript and self.session.client:
                 try:
@@ -159,7 +164,102 @@ class DiarizeAgent(Agent):
         finally:
             self.session.end_mlflow_run()
 
+    async def _label_segments(
+        self,
+        segments: list[dict[str, Any]],
+        provider: HybridSTTProvider,
+    ) -> str:
+        """Label speaker IDs as Doctor/Patient using the LLM role-mapping prompt.
+
+        Falls back to the streaming transcript when no diarized segments are
+        available, and to the heuristic ``_relabel_segments`` if the LLM fails
+        or returns an unusable response.
+        """
+        if not segments:
+            logger.info("DiarizeAgent: no diarized segments, using streaming transcript")
+            return provider.get_streaming_transcript()
+
+        transcript = self._build_segment_transcript(segments)
+
+        try:
+            role_map = await self._call_role_mapper(transcript)
+        except Exception as e:
+            logger.warning("DiarizeAgent: LLM role mapping failed: %s", e)
+            role_map = None
+
+        if not role_map:
+            logger.info("DiarizeAgent: falling back to heuristic speaker relabeling")
+            return _relabel_segments(segments)
+
+        labeled: list[str] = []
+        for seg in segments:
+            speaker_id = str(seg.get("speaker_id", ""))
+            speaker = role_map.get(speaker_id) or role_map.get(f"SPEAKER_{speaker_id}")
+            if not speaker:
+                speaker = f"Speaker_{speaker_id}"
+            labeled.append(f"{speaker}: {seg.get('text', '')}")
+
+        return "\n".join(labeled)
+
+    @staticmethod
+    def _build_segment_transcript(segments: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for seg in segments:
+            speaker_id = str(seg.get("speaker_id", "0"))
+            lines.append(f"SPEAKER_{speaker_id}: {seg.get('text', '')}")
+        return "\n".join(lines)
+
+    async def _call_role_mapper(self, transcript: str) -> dict[str, str] | None:
+        """Call the LLM with DIARIZE_ROLE_MAP_PROMPT and parse the JSON result."""
+        messages = [
+            {"role": "system", "content": DIARIZE_ROLE_MAP_PROMPT},
+            {"role": "user", "content": transcript},
+        ]
+
+        response_text = ""
+        async for event in self.session.client.chat_completion(messages, stream=False):
+            if event.type == StreamEventType.MESSAGE_COMPLETE and event.text_delta:
+                response_text += event.text_delta.content
+
+        parsed = _parse_role_mapping(response_text)
+        if not parsed:
+            return None
+
+        role_map: dict[str, str] = {}
+        doctor_id = parsed.get("doctor_speaker_id")
+        patient_id = parsed.get("patient_speaker_id")
+
+        if doctor_id and doctor_id != "NONE":
+            role_map[str(doctor_id)] = "Doctor"
+        if patient_id and patient_id != "NONE":
+            role_map[str(patient_id)] = "Patient"
+
+        return role_map if role_map else None
+
     async def __aenter__(self):
         if not self.session.context_manager:
             await self.session.initialize()
         return self
+
+
+def _parse_role_mapping(raw_text: str) -> dict[str, Any] | None:
+    """Parse the LLM role-mapping JSON, tolerating markdown fences."""
+    if not raw_text:
+        return None
+
+    clean = re.sub(r"```json\s*|\s*```", "", raw_text).strip()
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extract the first JSON object if the model added surrounding text.
+    match = re.search(r"\{.*\}", clean, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+    return None

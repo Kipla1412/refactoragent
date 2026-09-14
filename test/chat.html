@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Agent Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0f172a; color: white; font-family: Arial, sans-serif; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .container { width: 700px; max-width: 95%; height: 80vh; display: flex; flex-direction: column; }
+        .card { background: #1e293b; border-radius: 16px; padding: 20px; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        h1 { text-align: center; margin-bottom: 12px; font-size: 20px; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 12px; justify-content: center; }
+        .tab { padding: 8px 18px; border-radius: 8px; cursor: pointer; background: #334155; border: none; color: white; font-size: 14px; }
+        .tab.active { background: #22c55e; }
+        .status { text-align: center; margin-bottom: 10px; font-size: 13px; color: #94a3b8; min-height: 18px; }
+        .status.ready { color: #22c55e; }
+        .status.thinking { color: #f59e0b; }
+        .status.error { color: #ef4444; }
+        .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+        .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; line-height: 1.5; font-size: 14px; white-space: pre-wrap; }
+        .msg.user { align-self: flex-end; background: #2563eb; }
+        .msg.agent { align-self: flex-start; background: #334155; }
+        .msg.greeting { align-self: flex-start; background: #064e3b; border: 1px solid #059669; }
+        .input-row { display: flex; gap: 8px; margin-top: 12px; }
+        .input-row input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 14px; }
+        .input-row input:focus { outline: none; border-color: #22c55e; }
+        .input-row button { padding: 12px 20px; border-radius: 8px; border: none; background: #22c55e; color: white; cursor: pointer; font-size: 14px; }
+        .input-row button:disabled { background: #475569; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Chat Agent</h1>
+            <div class="tabs">
+                <button class="tab active" onclick="setAgent('intake')">Intake</button>
+                <button class="tab" onclick="setAgent('consult')">Consult</button>
+            </div>
+            <div class="status" id="status">Disconnected</div>
+            <div class="messages" id="messages"></div>
+            <div class="input-row">
+                <input id="msgInput" type="text" placeholder="Type your message..." onkeydown="if(event.key==='Enter')sendMessage()" disabled />
+                <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const TOKEN = "eyJhbGciOiJFZERTQSIsImtpZCI6InZlcnlNMnFSTFRRMWlFSWp4ajdiVE9Sejg2VFdJSUhVIn0.eyJpYXQiOjE3ODkwMzkwNjksIm5hbWUiOiJQYXRpZW50MSIsImVtYWlsIjoicGF0aWVudDFAZ21haWwuY29tIiwiZW1haWxWZXJpZmllZCI6ZmFsc2UsImltYWdlIjpudWxsLCJjcmVhdGVkQXQiOiIyMDI2LTA1LTA3VDEzOjI5OjEwLjI5MloiLCJ1cGRhdGVkQXQiOiIyMDI2LTA1LTA3VDEzOjI5OjEwLjI5MloiLCJ1c2VybmFtZSI6InBhdGllbnQxIiwiZGlzcGxheVVzZXJuYW1lIjoicGF0aWVudDEiLCJ0d29GYWN0b3JFbmFibGVkIjpmYWxzZSwicm9sZSI6Imd1ZXN0IiwiYmFubmVkIjpmYWxzZSwiYmFuUmVhc29uIjpudWxsLCJiYW5FeHBpcmVzIjpudWxsLCJpZCI6InpEUVpmS2pWZXNoMTVpOFlYeTlFV21VWlU0OXdxZHQ2IiwiYWN0aXZlT3JnYW5pemF0aW9uSWQiOiIwZmI0MWU1MC04MmE0LTQ2MWUtOTZjNy1iZDExMzU5ZDg5MmQiLCJhY3RpdmVUZWFtSWQiOm51bGwsInN1YiI6InpEUVpmS2pWZXNoMTVpOFlYeTlFV21VWlU0OXdxZHQ2IiwiZXhwIjoxNzg5MDM5OTY5LCJpc3MiOiJodHRwczovL2lhbS5kcmdvZGx5LmNvbSIsImF1ZCI6Imh0dHBzOi8vaWFtLmRyZ29kbHkuY29tIn0.FAKEijmSxKsSEXOH4xGy0I3UDQzVL9eLqsFaHLCgimWEXAMPLE";
+        const messagesEl = document.getElementById("messages");
+        const statusEl = document.getElementById("status");
+        const inputEl = document.getElementById("msgInput");
+        const sendBtn = document.getElementById("sendBtn");
+        let currentAgent = "intake";
+
+        function setAgent(agent) {
+            currentAgent = agent;
+            document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+            event.target.classList.add("active");
+            messagesEl.innerHTML = "";
+            loadGreeting();
+        }
+
+        function setStatus(text, cls) {
+            statusEl.textContent = text;
+            statusEl.className = "status" + (cls ? " " + cls : "");
+        }
+
+        function addMessage(text, role) {
+            const div = document.createElement("div");
+            div.className = "msg " + role;
+            div.textContent = text;
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        async function loadGreeting() {
+            inputEl.disabled = true;
+            sendBtn.disabled = true;
+            setStatus("Connecting...", "");
+            try {
+                const res = await fetch(`/api/agent/${currentAgent}/greeting`, {
+                    headers: { "Authorization": `Bearer ${TOKEN}` },
+                });
+                const data = await res.json();
+                if (data.error) { setStatus(data.error, "error"); return; }
+                addMessage(data.message, "greeting");
+                setStatus("Ready — type a message", "ready");
+                inputEl.disabled = false;
+                sendBtn.disabled = false;
+                inputEl.focus();
+            } catch (err) {
+                setStatus("Connection failed: " + err.message, "error");
+            }
+        }
+
+        async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message) return;
+            addMessage(message, "user");
+            inputEl.value = "";
+            inputEl.disabled = true;
+            sendBtn.disabled = true;
+            setStatus("Agent is thinking...", "thinking");
+
+            let agentReply = "";
+            try {
+                const res = await fetch(`/api/agent/${currentAgent}`, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${TOKEN}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ message }),
+                });
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const event = JSON.parse(line);
+                        if (event.type === "text_complete" && event.data?.content) {
+                            agentReply += event.data.content;
+                        } else if (event.type === "error") {
+                            addMessage("Error: " + (event.data || "Unknown"), "agent");
+                        }
+                    }
+                }
+            } catch (err) {
+                setStatus("Error: " + err.message, "error");
+            }
+
+            if (agentReply) addMessage(agentReply, "agent");
+            setStatus("Ready", "ready");
+            inputEl.disabled = false;
+            sendBtn.disabled = false;
+            inputEl.focus();
+        }
+
+        loadGreeting();
+    </script>
+</body>
+</html>

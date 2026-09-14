@@ -11,12 +11,10 @@ if TYPE_CHECKING:
     from client.llm_client import LLMClient
 
 LANGUAGE_MAP = {
-    "en-IN": "English", "ta-IN": "Tamil", "hi-IN": "Hindi",
-    "ml-IN": "Malayalam", "te-IN": "Telugu", "kn-IN": "Kannada",
-    "bn-IN": "Bengali", "gu-IN": "Gujarati", "mr-IN": "Marathi",
-    "en": "English", "ta": "Tamil", "hi": "Hindi",
-    "ml": "Malayalam", "te": "Telugu", "kn": "Kannada",
-    "bn": "Bengali", "gu": "Gujarati", "mr": "Marathi",
+    "en-IN": "English",
+    "ta-IN": "Tamil",
+    "en": "English",
+    "ta": "Tamil",
 }
 
 
@@ -72,10 +70,41 @@ class VoiceSession:
         self.agent = agent
         self.tts = tts
 
+    async def _translate_to_english(
+        self,
+        text: str,
+        source_language: str,
+    ) -> str:
+        """Normalize user input to English before it reaches the Core Agent.
+
+        Only Tamil → English is supported. English input passes through
+        unchanged.
+        """
+        if not source_language or source_language in ("en-IN", "en", "", None):
+            return text
+        if source_language not in ("ta-IN", "ta"):
+            return text
+
+        try:
+            result = await translate_text(
+                self.agent.session.client, text,
+                target_language="en", source_language=source_language
+            )
+        except Exception as e:
+            print(f"[TRANSLATE] Tamil → English failed: {e}")
+            return text
+
+        print(f"[TRANSLATE] '{text[:50]}...' -> '{result[:50]}...' (ta→en)")
+        return result
+
     async def _translate_to(self, text: str, target_language: str) -> str:
         if not target_language or target_language in ("en-IN", "en", "", None):
             print(f"[TRANSLATE] Skipped — target_language={target_language}")
             return text
+        if target_language not in ("ta-IN", "ta"):
+            print(f"[TRANSLATE] Unsupported output language '{target_language}' — sending English")
+            return text
+
         result = await translate_text(
             self.agent.session.client, text,
             target_language=target_language, source_language="en"
@@ -84,6 +113,7 @@ class VoiceSession:
         return result
 
     async def _drain_tts(self):
+        """Drain audio until the TTS completion event (single-turn helper)."""
         while True:
             try:
                 res = await self.tts.receive_audio()
@@ -100,13 +130,27 @@ class VoiceSession:
                 print(f"TTS Drain Error: {e}")
                 break
 
-    async def process_transcript_to_audio(self, transcript: str, target_language: str = "en-IN"):
-        print(f"[PROCESS] target_language={target_language} transcript='{transcript[:50]}...'")
+    async def process_transcript_to_audio(
+        self,
+        transcript: str,
+        target_language: str = "en-IN",
+        source_language: str = "en-IN",
+    ):
+        print(f"[PROCESS] target_language={target_language} source_language={source_language} transcript='{transcript[:50]}...'")
+
+        # Start each synthesis turn with a fresh TTS connection. Sarvam
+        # finalizes the session after a flush+drain, so reusing the same
+        # socket for the next turn produces no audio.
+        await self.tts.reconnect()
+
+        # Normalize user input to English before it reaches the Core Agent.
+        english_transcript = await self._translate_to_english(transcript, source_language)
+
         buffer = ""
         tts_buffer = ""
         text_buffer = ""
 
-        async for event in self.agent.run(transcript):
+        async for event in self.agent.run(english_transcript):
             if event.type == AgentEventType.TEXT_DELTA:
                 token = event.data["content"]
                 buffer += token
@@ -132,9 +176,6 @@ class VoiceSession:
                             yield {"type": "text", "content": chunk_text + " "}
                         translated = await self._translate_to(text_to_speak, target_language)
                         await self.tts.send_text(translated)
-                        await self.tts.flush()
-                        async for audio_bytes in self._drain_tts():
-                            yield {"type": "audio", "content": audio_bytes}
                 elif has_punct:
                     buffer = ""
 
@@ -145,11 +186,14 @@ class VoiceSession:
                 yield {"type": "text", "content": chunk_text}
             translated = await self._translate_to(remaining, target_language)
             await self.tts.send_text(translated)
-            await self.tts.flush()
-            async for audio_bytes in self._drain_tts():
-                yield {"type": "audio", "content": audio_bytes}
+
+        # Flush once at the end, then drain all remaining audio.
+        await self.tts.flush()
+        async for audio_bytes in self._drain_tts():
+            yield {"type": "audio", "content": audio_bytes}
 
     async def text_to_audio(self, text: str):
+        await self.tts.reconnect()
         await self.tts.send_text(text)
         await self.tts.flush()
         async for audio_bytes in self._drain_tts():

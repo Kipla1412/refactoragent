@@ -44,6 +44,19 @@ class SarvamStreamingTTSProvider:
             except Exception as e:
                 print(f"Failed to build TTS socket connection layout: {e}")
                 await self._cleanup()
+
+    async def reconnect(self):
+        """Close the current connection and open a fresh one.
+
+        Sarvam finalizes a synthesis session after each ``flush()`` that drains
+        to the completion event. Sending more text afterward produces no audio,
+        so every new synthesis turn (greeting or response) must start with a
+        clean connection.
+        """
+        async with self.lock:
+            await self._cleanup()
+
+        await self.connect()
                 
    
     # Add this method to your SarvamStreamingTTSProvider

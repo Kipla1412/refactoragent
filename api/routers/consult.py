@@ -141,6 +141,50 @@ async def consult_api(request: Request, data: ChatRequest):
     )
 
 
+@router.get(
+    "/intake/greeting",
+    summary="Intake greeting",
+    description="Returns the intake assistant's initial greeting for a new session.",
+    responses={200: {"model": ChatResponse, "description": "Greeting event"}},
+    dependencies=[Depends(require_permission("consultagent", "chat"))],
+)
+async def intake_greeting(request: Request):
+    user_id = request.state.user["sub"]
+    config = request.app.state.config
+    session = await request.app.state.session_manager.get_session(user_id, config)
+
+    return {
+        "type": "text_complete",
+        "message": (
+            "Hello, I'm your medical intake assistant. I'll gather some "
+            "information before your visit. What's your full name?"
+        ),
+        "agent": "intake",
+    }
+
+
+@router.get(
+    "/consult/greeting",
+    summary="Consult greeting",
+    description="Returns the consultation assistant's initial greeting for a new session.",
+    responses={200: {"model": ChatResponse, "description": "Greeting event"}},
+    dependencies=[Depends(require_permission("consultagent", "chat"))],
+)
+async def consult_greeting(request: Request):
+    user_id = request.state.user["sub"]
+    config = request.app.state.config
+    session = await request.app.state.session_manager.get_session(user_id, config)
+
+    return {
+        "type": "text_complete",
+        "message": (
+            "Hi, I'm your medical assistant. What problem or symptom would "
+            "you like to discuss today?"
+        ),
+        "agent": "consult",
+    }
+
+
 @router.post(
     "/intake",
     summary="Patient Intake Assistant",
