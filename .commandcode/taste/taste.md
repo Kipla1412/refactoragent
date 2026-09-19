@@ -4,7 +4,7 @@
 
 # voice-agent
 - Split voice agent modules into separate files per responsibility: voiceagent.py for shared utilities (VoiceSession, translate_text, LANGUAGE_MAP), voiceintake.py for VoiceIntakeAgent, voiceconsult.py for VoiceConsultAgent. Confidence: 0.60
-- Voice agents should greet the user on session start with a per-agent-type greeting (intake vs consult differ) and emit a status event protocol over the WebSocket (greeting → ready → thinking → ready) so the frontend can render a visible listening/processing indicator — explicitly asked to "add the initial greeting message and when the agent is ready to answer it, i want to show". Confidence: 0.7
+- Voice agents should greet the user on session start with a per-agent-type greeting (intake vs consult differ) and emit a status event protocol over the WebSocket (greeting → ready → thinking → ready, plus an explicit `end` status when the conversation concludes) so the frontend can render a visible listening/processing indicator — explicitly asked to "add the initial greeting message and when the agent is ready to answer it, i want to show". Confidence: 0.7
 
 # architecture
 See [architecture/taste.md](architecture/taste.md)

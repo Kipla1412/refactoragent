@@ -9,6 +9,15 @@ from prompts.system import get_system_prompt
 from .voiceintakeprompt import VOICE_INTAKE_PROMPT
 
 class VoiceIntakeAgent(Agent):
+
+    # Phrases that signal the voice intake conversation is complete.
+    END_PATTERNS = (
+        "intake is complete",
+        "intake has been completed",
+        "thank you. your intake",
+        "information will be available for your doctor",
+    )
+
     def __init__(self, config, session=None):
         super().__init__(config, VOICE_INTAKE_PROMPT, AgentType.VOICE_INTAKE)
         if session:
@@ -30,12 +39,23 @@ class VoiceIntakeAgent(Agent):
         self.session.start_mlflow_run(transcript)
 
         try:
+            response_text = ""
             async for event in self._agentic_loop():
                 if hasattr(event, 'data') and event.data.get("agent") is None:
                     event.data["agent"] = self.agent_type
+                if event.type == AgentEventType.TEXT_DELTA:
+                    response_text += event.data.get("content", "")
                 yield event
+
+            if self._is_end_of_conversation(response_text):
+                yield AgentEvent.status_end(agent=self.agent_type)
         finally:
             self.session.end_mlflow_run()
+
+    @classmethod
+    def _is_end_of_conversation(cls, response_text: str) -> bool:
+        normalized = response_text.lower().strip()
+        return any(pattern in normalized for pattern in cls.END_PATTERNS)
 
     async def __aenter__(self):
         if not self.session.context_manager:

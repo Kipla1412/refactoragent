@@ -24,7 +24,7 @@ _SCRIPT_MAP = [
 _GREETINGS = {
     "voice_intake": (
         "Hello, I'm your medical intake assistant. I'll gather some "
-        "information before your visit. What's your full name?"
+        "information before your visit."
     ),
     "voice_consult": (
         "Hi, I'm your medical assistant. What problem or symptom would "
@@ -143,6 +143,11 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
     greeting = _GREETINGS.get(agent_type)
     if greeting:
         try:
+            # Record the greeting as the assistant's first turn so the agent
+            # does not introduce itself a second time on the first user turn.
+            if session.context_manager and not session.metadata.get("greeted"):
+                session.context_manager.add_assistant_message(greeting)
+                session.metadata["greeted"] = True
             await safe_send_json({"type": "status", "status": "greeting"})
             await safe_send_json({"type": "text", "text": greeting})
             async for audio_bytes in voice_session.text_to_audio(greeting):
@@ -173,6 +178,7 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                 await safe_send_json({"type": "status", "status": "thinking"})
                 text_buffer = ""
                 audio_buffer_len = 0
+                ended = False
                 async for response in voice_session.process_transcript_to_audio(
                     transcript_text,
                     target_language=patient_language,
@@ -193,12 +199,17 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             audio_buffer_len += len(audio_payload)
                             await safe_send_json({"type": "audio", "audio": audio_payload})
 
+                    elif response.get("type") == "status" and response.get("status") == "end":
+                        ended = True
+                        await safe_send_json({"type": "status", "status": "end"})
+
                 if text_buffer.strip():
                     print(f"[WS → Client] {{ type: \"text\", text: \"{text_buffer.strip()}\" }}")
                 if audio_buffer_len > 0:
                     print(f"[WS → Client] {{ type: \"audio\", audio: \"<b64 {audio_buffer_len} bytes>\" }}")
 
-                await safe_send_json({"type": "status", "status": "ready"})
+                if not ended:
+                    await safe_send_json({"type": "status", "status": "ready"})
 
             except asyncio.CancelledError:
                 logger.info("Response generation task explicitly cancelled.")

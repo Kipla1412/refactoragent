@@ -21,6 +21,9 @@ class AgentEventType(str, Enum):
     TEXT_DELTA = "text_delta"
     TEXT_COMPLETE = "text_complete"
     
+    # Conversation status
+    STATUS_END = "status_end"
+
     # User input
     USER_QUESTION = "user_question"
 
@@ -101,6 +104,13 @@ class AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
             data={"content": content, "agent": agent},
+        )
+
+    @classmethod
+    def status_end(cls, agent: AgentType) -> AgentEvent:
+        return cls(
+            type=AgentEventType.STATUS_END,
+            data={"status": "end", "agent": agent},
         )
 
     @classmethod

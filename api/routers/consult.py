@@ -102,17 +102,14 @@ Requires valid user session with consultagent:chat permission.
 )
 async def consult_api(request: Request, data: ChatRequest):
 
-    # validation
-    if not data.message:
-        return {"error": "Message is empty"}
-
     user_id = request.state.user["sub"]
     config = request.app.state.config
 
     # get shared session (memory per user)
     session = await request.app.state.session_manager.get_session(user_id, config)
 
-    # create agent with SAME session
+    # create agent with SAME session.
+    # An empty message on a new session triggers the initial greeting.
     agent = AgentFactory.create(AgentType.CONSULT, config, session)
 
     async def event_stream():
@@ -139,50 +136,6 @@ async def consult_api(request: Request, data: ChatRequest):
             "X-Session-ID": session.session_id
         }
     )
-
-
-@router.get(
-    "/intake/greeting",
-    summary="Intake greeting",
-    description="Returns the intake assistant's initial greeting for a new session.",
-    responses={200: {"model": ChatResponse, "description": "Greeting event"}},
-    dependencies=[Depends(require_permission("consultagent", "chat"))],
-)
-async def intake_greeting(request: Request):
-    user_id = request.state.user["sub"]
-    config = request.app.state.config
-    session = await request.app.state.session_manager.get_session(user_id, config)
-
-    return {
-        "type": "text_complete",
-        "message": (
-            "Hello, I'm your medical intake assistant. I'll gather some "
-            "information before your visit. What's your full name?"
-        ),
-        "agent": "intake",
-    }
-
-
-@router.get(
-    "/consult/greeting",
-    summary="Consult greeting",
-    description="Returns the consultation assistant's initial greeting for a new session.",
-    responses={200: {"model": ChatResponse, "description": "Greeting event"}},
-    dependencies=[Depends(require_permission("consultagent", "chat"))],
-)
-async def consult_greeting(request: Request):
-    user_id = request.state.user["sub"]
-    config = request.app.state.config
-    session = await request.app.state.session_manager.get_session(user_id, config)
-
-    return {
-        "type": "text_complete",
-        "message": (
-            "Hi, I'm your medical assistant. What problem or symptom would "
-            "you like to discuss today?"
-        ),
-        "agent": "consult",
-    }
 
 
 @router.post(
@@ -224,15 +177,13 @@ Requires valid user session with consultagent:chat permission.
     dependencies=[Depends(require_permission("consultagent", "chat"))]
 )
 async def intake_stream(request: Request, data: ChatRequest):
-    
-    if not data.message:
-        return {"error": "Message is empty"}
-        
+
     user_id = request.state.user["sub"]
     config = request.app.state.config
 
     session = await request.app.state.session_manager.get_session(user_id, config)
 
+    # An empty message on a new session triggers the initial greeting.
     agent = AgentFactory.create(AgentType.INTAKE, config, session)
 
     async def event_stream():

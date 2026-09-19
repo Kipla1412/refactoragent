@@ -149,6 +149,7 @@ class VoiceSession:
         buffer = ""
         tts_buffer = ""
         text_buffer = ""
+        end_of_conversation = False
 
         async for event in self.agent.run(english_transcript):
             if event.type == AgentEventType.TEXT_DELTA:
@@ -179,6 +180,9 @@ class VoiceSession:
                 elif has_punct:
                     buffer = ""
 
+            elif event.type == AgentEventType.STATUS_END:
+                end_of_conversation = True
+
         remaining = tts_buffer.strip() or buffer.strip()
         if remaining:
             chunk_text = text_buffer.strip()
@@ -191,6 +195,10 @@ class VoiceSession:
         await self.tts.flush()
         async for audio_bytes in self._drain_tts():
             yield {"type": "audio", "content": audio_bytes}
+
+        # Signal the client that the conversation has ended.
+        if end_of_conversation:
+            yield {"type": "status", "status": "end"}
 
     async def text_to_audio(self, text: str):
         await self.tts.reconnect()
