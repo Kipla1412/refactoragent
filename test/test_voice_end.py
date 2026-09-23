@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent.events import AgentEvent, AgentEventType
+from agent.events import AgentEvent, AgentEventType, AgentType
+from customagents.voiceagent.voiceagent import VoiceSession
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from customagents.voiceagent.voiceintakeprompt import VOICE_INTAKE_PROMPT
@@ -46,6 +47,75 @@ def test_voice_consult_end_patterns_are_detected():
     assert VoiceConsultAgent._is_end_of_conversation("Please go to the emergency department.")
     assert not VoiceConsultAgent._is_end_of_conversation("When did the pain begin?")
     assert not VoiceConsultAgent._is_end_of_conversation("")
+
+
+def test_end_patterns_tolerate_paraphrasing():
+    # The closings must be recognised regardless of punctuation/casing variants.
+    assert VoiceIntakeAgent._is_end_of_conversation("Thank you, your intake is now complete.")
+    assert VoiceIntakeAgent._is_end_of_conversation("We have completed your intake.")
+    assert VoiceIntakeAgent._is_end_of_conversation("That completes your intake!")
+    assert VoiceConsultAgent._is_end_of_conversation("This concludes our consultation.")
+    assert VoiceConsultAgent._is_end_of_conversation(
+        "That completes our consultation. Take care."
+    )
+    assert VoiceConsultAgent._is_end_of_conversation("The consultation is now complete.")
+
+
+def test_consult_prompt_instructs_a_matching_closing():
+    # The prompt's closing acknowledgment must contain a phrase the detector
+    # recognises, otherwise the consultation can never signal its end.
+    closing = "That completes our consultation."
+    assert closing in VOICE_CONSULT_PROMPT
+    assert VoiceConsultAgent._is_end_of_conversation(closing)
+
+
+class _FakeTTS:
+    def __init__(self):
+        self.sent = []
+        self.flushed = False
+
+    async def reconnect(self):
+        pass
+
+    async def send_text(self, text):
+        self.sent.append(text)
+
+    async def flush(self):
+        self.flushed = True
+
+    async def receive_audio(self):
+        return None
+
+
+class _FakeAgent:
+    def __init__(self, events):
+        self._events = events
+        self.session = MagicMock()
+
+    async def run(self, transcript):
+        for event in self._events:
+            yield event
+
+
+@pytest.mark.asyncio
+async def test_voice_session_emits_end_frame_on_status_end():
+    # End-to-end: agent STATUS_END -> VoiceSession -> {"type": "status", "status": "end"}
+    fake_agent = _FakeAgent([
+        AgentEvent.text_delta("That completes our consultation.", AgentType.VOICE_CONSULT),
+        AgentEvent.status_end(AgentType.VOICE_CONSULT),
+    ])
+    session = VoiceSession(agent=fake_agent, tts=_FakeTTS())
+
+    frames = [
+        frame
+        async for frame in session.process_transcript_to_audio(
+            "thank you doctor", target_language="en-IN", source_language="en-IN"
+        )
+    ]
+
+    assert any(
+        frame.get("type") == "status" and frame.get("status") == "end" for frame in frames
+    )
 
 
 @pytest.mark.asyncio

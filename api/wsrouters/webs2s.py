@@ -121,6 +121,15 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
     if not session.context_manager:
         await session.initialize()
 
+    # Client-supplied patient context (for example "name = X, age = 23") is
+    # sent as a WebSocket query param. When present, the agent treats those
+    # demographics as already collected instead of asking for them again.
+    patient_context = ws.query_params.get("patient_context")
+    if patient_context:
+        session.metadata["patient_context"] = patient_context
+    else:
+        session.metadata.pop("patient_context", None)
+
     voice_agent = AgentFactory.create(agent_type, config, session=session)
 
     stt = SarvamStreamingSTTProvider(
@@ -200,8 +209,13 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             await safe_send_json({"type": "audio", "audio": audio_payload})
 
                     elif response.get("type") == "status" and response.get("status") == "end":
+                        # Same wire shape the text agents emit, so clients can
+                        # handle voice and text conversations identically.
                         ended = True
-                        await safe_send_json({"type": "status", "status": "end"})
+                        await safe_send_json({
+                            "type": "status_end",
+                            "data": {"status": "end", "agent": agent_type},
+                        })
 
                 if text_buffer.strip():
                     print(f"[WS → Client] {{ type: \"text\", text: \"{text_buffer.strip()}\" }}")

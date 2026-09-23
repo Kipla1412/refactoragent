@@ -7,15 +7,17 @@ from agent.events import AgentEvent, AgentEventType, AgentType
 from client.response import StreamEventType
 from prompts.system import get_system_prompt
 from .voiceintakeprompt import VOICE_INTAKE_PROMPT
+from .voiceagent import build_patient_context_section
 
 class VoiceIntakeAgent(Agent):
 
-    # Phrases that signal the voice intake conversation is complete.
+    # Regexes that signal the voice intake conversation is complete. Matching is
+    # done against punctuation-stripped, lowercased text (see
+    # `_is_end_of_conversation`), so these are written in normalized form.
     END_PATTERNS = (
-        "intake is complete",
-        "intake has been completed",
-        "thank you. your intake",
-        "information will be available for your doctor",
+        r"intake (?:is|has been) (?:now )?complete",
+        r"complet(?:e|es|ed) (?:your|the) intake",
+        r"information will be available for your doctor",
     )
 
     def __init__(self, config, session=None):
@@ -29,9 +31,14 @@ class VoiceIntakeAgent(Agent):
 
         self.session.agent_name = self.__class__.__name__
 
+        role_prompt = self.system_prompt
+        patient_context = self.session.metadata.get("patient_context")
+        if patient_context:
+            role_prompt = f"{role_prompt}\n\n{build_patient_context_section(patient_context)}"
+
         full_system_prompt = get_system_prompt(
             config=self.config,
-            role_prompt=self.system_prompt,
+            role_prompt=role_prompt,
         )
         self.session.context_manager.set_system_prompt(full_system_prompt)
         self.session.context_manager.add_user_message(transcript)
@@ -54,8 +61,8 @@ class VoiceIntakeAgent(Agent):
 
     @classmethod
     def _is_end_of_conversation(cls, response_text: str) -> bool:
-        normalized = response_text.lower().strip()
-        return any(pattern in normalized for pattern in cls.END_PATTERNS)
+        normalized = re.sub(r"[^a-z0-9]+", " ", response_text.lower()).strip()
+        return any(re.search(pattern, normalized) for pattern in cls.END_PATTERNS)
 
     async def __aenter__(self):
         if not self.session.context_manager:

@@ -64,6 +64,36 @@ async def translate_text(
 
     return text
 
+
+def build_patient_context_section(patient_context: str) -> str:
+    """Build a system-prompt section for patient data known before the call.
+
+    Clients may pass demographics (for example ``name = X, age = 23``) as the
+    ``patient_context`` WebSocket query parameter. When present, the agent must
+    treat those details as already collected instead of asking for them again.
+    """
+    if not patient_context:
+        return ""
+
+    context = patient_context.strip()
+    # Tolerate the common "[patient_context: name = X, age = 23]" wrapper form.
+    if context.startswith("[") and context.endswith("]"):
+        context = context[1:-1].strip()
+    if context.lower().startswith("patient_context:"):
+        context = context[len("patient_context:"):].strip()
+    if not context:
+        return ""
+
+    return (
+        "# Known Patient Information\n\n"
+        "The patient record already contains the following information:\n\n"
+        f"{context}\n\n"
+        "This information is already available. Do NOT ask the patient for any "
+        "of these details again. Treat them as already collected and continue "
+        "with the next missing item only."
+    )
+
+
 class VoiceSession:
 
     def __init__(self, agent, tts):

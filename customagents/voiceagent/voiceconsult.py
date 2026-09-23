@@ -7,16 +7,21 @@ from agent.events import AgentEvent, AgentEventType, AgentType
 from client.response import StreamEventType
 from prompts.system import get_system_prompt
 from .voiceconsultprompt import VOICE_CONSULT_PROMPT
+from .voiceagent import build_patient_context_section
 
 class VoiceConsultAgent(Agent):
 
-    # Phrases that signal the voice consultation is concluding.
+    # Regexes that signal the voice consultation is concluding. Matching is done
+    # against punctuation-stripped, lowercased text (see
+    # `_is_end_of_conversation`), so these are written in normalized form.
     END_PATTERNS = (
-        "consultation is complete",
-        "in-person evaluation",
-        "see a doctor",
-        "emergency department",
-        "follow-up instructions",
+        r"consultation (?:is|has been) (?:now )?complete",
+        r"complet(?:e|es|ed) (?:our|the) consultation",
+        r"conclud(?:e|es|ed) (?:our|the) consultation",
+        r"in person evaluation",
+        r"see a doctor",
+        r"emergency department",
+        r"follow up instructions",
     )
 
     def __init__(self, config, session=None):
@@ -30,9 +35,14 @@ class VoiceConsultAgent(Agent):
 
         self.session.agent_name = self.__class__.__name__
 
+        role_prompt = self.system_prompt
+        patient_context = self.session.metadata.get("patient_context")
+        if patient_context:
+            role_prompt = f"{role_prompt}\n\n{build_patient_context_section(patient_context)}"
+
         full_system_prompt = get_system_prompt(
             config=self.config,
-            role_prompt=self.system_prompt,
+            role_prompt=role_prompt,
         )
         self.session.context_manager.set_system_prompt(full_system_prompt)
         self.session.context_manager.add_user_message(transcript)
@@ -55,8 +65,8 @@ class VoiceConsultAgent(Agent):
 
     @classmethod
     def _is_end_of_conversation(cls, response_text: str) -> bool:
-        normalized = response_text.lower().strip()
-        return any(pattern in normalized for pattern in cls.END_PATTERNS)
+        normalized = re.sub(r"[^a-z0-9]+", " ", response_text.lower()).strip()
+        return any(re.search(pattern, normalized) for pattern in cls.END_PATTERNS)
 
     async def __aenter__(self):
         if not self.session.context_manager:
