@@ -4,9 +4,14 @@ import logging
 import base64
 import re
 import time
+import uuid
 from customagents.factory import AgentFactory
 from customagents.sessionmanager import SessionManager
-from customagents.voiceagent.voiceagent import VoiceSession
+from customagents.voiceagent.voiceagent import (
+    VoiceSession,
+    _drop_unanswered_user_message,
+)
+from customagents.voiceagent.utterance import UtteranceCoalescer
 from customagents.voiceagent.voiceintake import VoiceIntakeAgent
 from customagents.voiceagent.voiceconsult import VoiceConsultAgent
 from speechtospeech.providers.stt.streamsarvam import SarvamStreamingSTTProvider
@@ -40,6 +45,16 @@ def detect_language(text: str) -> str | None:
         if re.search(pattern, text):
             return lang_code
     return None
+
+
+def _resolve_session_id(requested_session_id: str | None) -> str:
+    """Pick the session id for a voice connection.
+
+    A client may pin a session id to resume a conversation. When it does not,
+    every connection gets a brand-new session, so restarting a call never
+    inherits the previous conversation's history.
+    """
+    return requested_session_id or str(uuid.uuid4())
 
 
 async def _authenticate_ws(ws: WebSocket):
@@ -117,7 +132,14 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
             finally:
                 connection_open = False
 
-    session = await session_manager.get_session(user_id, config)
+    # Sessions are keyed by user AND session id. If the client pins a session
+    # id we reuse it (resume); otherwise this connection gets a fresh session
+    # so a restart never inherits the previous conversation's history.
+    requested_session_id = ws.query_params.get("session_id")
+    session_id = _resolve_session_id(requested_session_id)
+    is_ephemeral_session = requested_session_id is None
+
+    session = await session_manager.get_session(user_id, config, session_id=session_id)
     if not session.context_manager:
         await session.initialize()
 
@@ -167,7 +189,10 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
     await safe_send_json({"type": "status", "status": "ready"})
 
-    transcript_queue = asyncio.Queue()
+    # Sarvam's VAD can split one spoken sentence into several "final"
+    # transcripts. They are coalesced here so the agent receives the whole
+    # utterance as a single turn instead of answering (and cancelling) pieces.
+    coalescer = UtteranceCoalescer()
     active_response_task = None
 
     try:
@@ -226,9 +251,18 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                     await safe_send_json({"type": "status", "status": "ready"})
 
             except asyncio.CancelledError:
+                # The patient spoke again, so this turn was interrupted before
+                # it produced a reply. Drop the now-unanswered user message so
+                # the next turn does not start with two user messages in a row.
+                _drop_unanswered_user_message(session)
                 logger.info("Response generation task explicitly cancelled.")
             except Exception as e:
                 logger.error(f"Error in response generation: {e}")
+                # Never leave the client stuck on "thinking" — hand the mic back.
+                try:
+                    await safe_send_json({"type": "status", "status": "ready"})
+                except Exception:
+                    pass
 
         async def process_transcripts():
             nonlocal patient_language
@@ -271,25 +305,28 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                             logger.error(f"TTS update failed: {e}")
 
                 source_language = detected
-                print(f"USER ({user_id}): {raw_text} (final={is_final})")
-                await safe_send_json({"type": "transcript", "text": raw_text})
 
-                # Only final transcripts trigger an agent response. Partial
-                # transcripts update the live display but must not restart the
-                # agent/TTS pipeline (that churn tears down the TTS connection
-                # before audio can complete).
+                # Show the patient's *complete* utterance, not just the newest
+                # fragment: finals are merged by the coalescer, and partials are
+                # already cumulative.
                 if is_final:
-                    await transcript_queue.put((raw_text, source_language))
+                    print(f"[STT] final fragment: '{raw_text}'")
+                    coalescer.add(raw_text, source_language)
+                    display_text = coalescer.pending
+                else:
+                    display_text = raw_text
+
+                print(f"USER ({user_id}): {display_text} (final={is_final})")
+                await safe_send_json({"type": "transcript", "text": display_text})
 
         async def dispatch_responses():
             nonlocal active_response_task
-            while True:
+            async for transcript, source_language in coalescer.utterances():
                 try:
-                    transcript, source_language = await transcript_queue.get()
-                except asyncio.CancelledError:
-                    break
+                    # The fragments have been merged — make sure the client shows
+                    # the patient's complete utterance.
+                    await safe_send_json({"type": "transcript", "text": transcript})
 
-                try:
                     if active_response_task and not active_response_task.done():
                         print("Interrupting active speaking block for new phrase...")
                         active_response_task.cancel()
@@ -309,8 +346,6 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
                     break
                 except Exception as e:
                     logger.error(f"Queue orchestration failure: {e}")
-                finally:
-                    transcript_queue.task_done()
 
         receive_task = asyncio.create_task(receive_audio())
         transcript_task = asyncio.create_task(process_transcripts())
@@ -333,6 +368,8 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
         except Exception:
             pass
     finally:
+        coalescer.close()
+
         if active_response_task and not active_response_task.done():
             active_response_task.cancel()
 
@@ -355,5 +392,14 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
         if voice_agent and voice_agent.session and voice_agent.session.client:
             await voice_agent.session.client.close()
+
+        # Drop ephemeral sessions on disconnect so their context does not leak
+        # into the next call and they do not accumulate in memory. Sessions the
+        # client pinned with an explicit session_id are kept for resumption.
+        if is_ephemeral_session:
+            try:
+                await session_manager.delete_session(user_id, session_id)
+            except Exception as e:
+                logger.debug(f"Ephemeral session cleanup failed: {e}")
 
         print(f"{label} Session Closed Safely")

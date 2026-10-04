@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import re
 import base64
 from typing import TYPE_CHECKING, AsyncGenerator
@@ -88,13 +89,35 @@ def build_patient_context_section(patient_context: str) -> str:
         "# Known Patient Information\n\n"
         "The patient record already contains the following information:\n\n"
         f"{context}\n\n"
-        "This information is already available. Do NOT ask the patient for any "
-        "of these details again. Treat them as already collected and continue "
-        "with the next missing item only."
+        "Treat every item above as ALREADY COLLECTED. Do NOT ask the patient "
+        "for any of these details again, in any wording. Do not ask for a "
+        "different field in order to re-derive them (for example, do not ask "
+        "for a date of birth when an age is already given). Skip the "
+        "corresponding intake questions and begin with the next item that is "
+        "genuinely missing."
     )
 
 
+def _drop_unanswered_user_message(session) -> None:
+    """Remove a trailing patient message that never received a reply.
+
+    When a turn is interrupted (the patient speaks again mid-answer),
+    ``agent.run()`` has already recorded the user's message but no assistant
+    reply is written. Leaving it in place makes the next turn two user messages
+    in a row, and the model then sees an unanswered question.
+    """
+    context_manager = getattr(session, "context_manager", None)
+    messages = getattr(context_manager, "_messages", None)
+    if not messages:
+        return
+    if getattr(messages[-1], "role", None) == "user":
+        messages.pop()
+
+
 class VoiceSession:
+
+    # A turn must never hang on a TTS socket that has stopped responding.
+    TTS_DRAIN_TIMEOUT_SECONDS = 20.0
 
     def __init__(self, agent, tts):
         self.agent = agent
@@ -146,19 +169,26 @@ class VoiceSession:
         """Drain audio until the TTS completion event (single-turn helper)."""
         while True:
             try:
-                res = await self.tts.receive_audio()
-                if res is None:
-                    break
-                if hasattr(res, "type") and res.type == "event":
-                    event_data = getattr(res, "data", None)
-                    if event_data and getattr(event_data, "event_type", None) == "final":
-                        break
-                if hasattr(res, "data") and res.data and hasattr(res.data, "audio"):
-                    if res.data.audio:
-                        yield base64.b64decode(res.data.audio)
+                res = await asyncio.wait_for(
+                    self.tts.receive_audio(),
+                    timeout=self.TTS_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                print("[TTS] Drain timed out waiting for the next audio event")
+                break
             except Exception as e:
                 print(f"TTS Drain Error: {e}")
                 break
+
+            if res is None:
+                break
+            if hasattr(res, "type") and res.type == "event":
+                event_data = getattr(res, "data", None)
+                if event_data and getattr(event_data, "event_type", None) == "final":
+                    break
+            if hasattr(res, "data") and res.data and hasattr(res.data, "audio"):
+                if res.data.audio:
+                    yield base64.b64decode(res.data.audio)
 
     async def process_transcript_to_audio(
         self,
@@ -168,9 +198,10 @@ class VoiceSession:
     ):
         print(f"[PROCESS] target_language={target_language} source_language={source_language} transcript='{transcript[:50]}...'")
 
-        # Start each synthesis turn with a fresh TTS connection. Sarvam
-        # finalizes the session after a flush+drain, so reusing the same
-        # socket for the next turn produces no audio.
+        # Every turn needs a fresh connection: Sarvam finalizes the synthesis
+        # session after a flush+drain, so a reused socket produces no audio.
+        # Opened up front so the handshake hides behind the LLM turn instead of
+        # delaying the first chunk of speech.
         await self.tts.reconnect()
 
         # Normalize user input to English before it reaches the Core Agent.

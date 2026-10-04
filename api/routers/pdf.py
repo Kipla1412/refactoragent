@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -14,6 +15,8 @@ from utils.pdf_extractor import PDFDocumentExtractor
 from utils.pdf_ocr import PDFOCR
 
 router = APIRouter(prefix="/agent")
+
+logger = logging.getLogger(__name__)
 
 _extractor = PDFDocumentExtractor()
 
@@ -35,10 +38,21 @@ async def pdf_chat_api(
     request: Request,
     message: str = Form(...),
     file: UploadFile | None = File(None),
+    session_id: str | None = Form(None),
 ):
     user_id = request.state.user["sub"]
     config = request.app.state.config
-    session = await request.app.state.session_manager.get_session(user_id, config)
+
+    # Pin a session id to isolate/resume a PDF conversation. Without one the
+    # request uses the user's shared session so follow-up questions keep the
+    # uploaded PDF context.
+    session = await request.app.state.session_manager.get_session(
+        user_id, config, session_id=session_id
+    )
+    logger.info(
+        "[CHAT][pdf-chat] user=%s requested_session_id=%s resolved_session_id=%s uploaded=%s",
+        user_id, session_id, session.session_id, bool(file and file.filename),
+    )
 
     if not message or not message.strip():
         return JSONResponse(

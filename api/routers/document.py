@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 from agent.events import AgentType
 from api.auth import require_permission
 from customagents.factory import AgentFactory
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent")
 
@@ -152,9 +155,15 @@ async def document_api(
     config = request.app.state.config
 
     # ========================================================
-    # 4. Get shared session
+    # 4. Get session (pin session_id to isolate, else user's shared one)
     # ========================================================
-    session = await request.app.state.session_manager.get_session(user_id, config)
+    session = await request.app.state.session_manager.get_session(
+        user_id, config, session_id=data.session_id
+    )
+    logger.info(
+        "[CHAT][document] user=%s requested_session_id=%s resolved_session_id=%s",
+        user_id, data.session_id, session.session_id,
+    )
 
     # ========================================================
     # 5. Store document scope in session

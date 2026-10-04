@@ -37,7 +37,10 @@ class SarvamStreamingSTTProvider:
             language_code=self.language_code,
             sample_rate=self.sample_rate,
             input_audio_codec="pcm",
-            high_vad_sensitivity=True,
+            # High sensitivity makes the VAD end a segment at the slightest
+            # pause, so one sentence arrives as several "final" transcripts.
+            # Normal sensitivity keeps a sentence together.
+            high_vad_sensitivity=False,
         )
         self.socket = await self.ctx.__aenter__()
         print(f"Sarvam STT Connected (language={language_code})")

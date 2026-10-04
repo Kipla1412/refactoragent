@@ -108,10 +108,15 @@ class SarvamStreamingTTSProvider:
                     await self.close()
             return res
         except Exception as e:
-            print(f"Debug TTS Recv Notice: {e}")
-            if "closed" in str(e).lower() or "1000" in str(e) or "none" in str(e).lower():
-                print("Connection truly dead. Cleaning references.")
+            message = str(e)
+            if "1000" in message or "closed" in message.lower() or "none" in message.lower():
+                # The socket was opened with send_completion_event=True, so
+                # Sarvam finalizes and closes the synthesis session after our
+                # flush. That is the expected end of a turn, not a failure.
+                print(f"TTS session closed by Sarvam: {message}")
                 await self.close()
+            else:
+                print(f"Debug TTS Recv Notice: {message}")
             return None
 
     async def flush(self):

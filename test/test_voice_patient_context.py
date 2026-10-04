@@ -82,3 +82,36 @@ async def test_consult_prompt_includes_patient_context(config):
 
     prompt = session.context_manager.set_system_prompt.call_args[0][0]
     assert "name = hahsd, age = 23" in prompt
+
+
+def test_intake_prompt_does_not_unconditionally_demand_full_name():
+    """The role prompt must not tell the agent to always ask for the name.
+
+    It used to end its Opening with "Begin the intake by asking for the
+    patient's full name", which overrode the injected patient context.
+    """
+    from customagents.voiceagent.voiceintakeprompt import VOICE_INTAKE_PROMPT
+
+    assert "asking for the patient's full name" not in VOICE_INTAKE_PROMPT
+    assert "Known Patient Information" in VOICE_INTAKE_PROMPT
+
+
+def test_patient_context_section_forbids_re_deriving_fields():
+    section = build_patient_context_section("age = 34")
+    assert "ALREADY COLLECTED" in section
+    assert "date of birth" in section
+
+
+def test_prompts_do_not_ask_for_dob_when_an_age_is_known():
+    """An age is enough — asking for date of birth anyway was the bug reported.
+
+    The demographic rules used to say "Prefer date of birth over asking for
+    age", which contradicted the injected patient context.
+    """
+    from customagents.previsitagent.intakeprompt import INTAKE_PROMPT
+    from customagents.voiceagent.voiceconsultprompt import VOICE_CONSULT_PROMPT
+    from customagents.voiceagent.voiceintakeprompt import VOICE_INTAKE_PROMPT
+
+    for prompt in (VOICE_INTAKE_PROMPT, VOICE_CONSULT_PROMPT, INTAKE_PROMPT):
+        assert "Prefer date of birth over asking for age" not in prompt
+        assert "do NOT ask for date of birth" in prompt

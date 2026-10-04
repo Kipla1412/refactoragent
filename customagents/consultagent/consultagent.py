@@ -13,15 +13,15 @@ class ConsultingAgent(Agent):
         "health concerns today."
     )
 
-    # Phrases that signal the consultation is concluding.
+    # Phrases that signal the consultation is concluding. Only the statement
+    # forms of the mandated closing marker are used: phrases like
+    # "in-person evaluation", "see a doctor" and "take care" appear in normal
+    # advice, so matching them ended live conversations.
     END_PATTERNS = (
+        "completes our consultation",
+        "concludes our consultation",
         "consultation is complete",
-        "in-person evaluation",
-        "see a doctor",
-        "emergency department",
-        "follow-up instructions",
-        "take care",
-        "stay healthy",
+        "consultation has been completed",
     )
 
     def __init__(self, config, session=None):

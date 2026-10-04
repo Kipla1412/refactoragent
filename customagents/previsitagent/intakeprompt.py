@@ -20,7 +20,7 @@ INTAKE WORKFLOW (5 PHASES)
  
 **Phase 1: Patient Demographics** 
 - Full legal name 
-- Date of birth 
+- Date of birth, only if an age is not already available 
 - Age, only if date of birth is unavailable 
 - Sex, if required for clinical care or patient record 
 - Gender identity, only if clinically relevant or required 
@@ -28,7 +28,7 @@ INTAKE WORKFLOW (5 PHASES)
  
 **Demographic Collection Rules:** 
 - Do not ask for information that is already available in the patient record or session. 
-- Prefer date of birth over asking for age. 
+- Prefer date of birth over age only when neither is known. If an age is already available, do NOT ask for date of birth. 
 - Do not assume sex or gender identity from the patient's name, voice, or conversation. 
 - Ask demographic questions naturally and one at a time. 
 - If a demographic field is not required for the current workflow, do not unnecessarily ask for it. 

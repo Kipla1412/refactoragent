@@ -14,14 +14,19 @@ class VoiceConsultAgent(Agent):
     # Regexes that signal the voice consultation is concluding. Matching is done
     # against punctuation-stripped, lowercased text (see
     # `_is_end_of_conversation`), so these are written in normalized form.
+    #
+    # "completes our consultation" is the marker VOICE_CONSULT_PROMPT requires
+    # in the closing acknowledgment. Only statement forms are matched: the bare
+    # infinitive ("complete our consultation") is ordinary mid-consultation
+    # wording, and phrases like "in person evaluation" or "see a doctor" appear
+    # in normal advice, so they must not end the call.
     END_PATTERNS = (
-        r"consultation (?:is|has been) (?:now )?complete",
-        r"complet(?:e|es|ed) (?:our|the) consultation",
-        r"conclud(?:e|es|ed) (?:our|the) consultation",
-        r"in person evaluation",
-        r"see a doctor",
-        r"emergency department",
-        r"follow up instructions",
+        r"(?:completes|concludes) (?:our|the) consultation",
+        r"(?:our|the) consultation is (?:now )?complete",
+        r"(?:our|the) consultation has been completed",
+        # Emergency escalation ends the consultation.
+        r"call emergency services",
+        r"go to the nearest emergency department",
     )
 
     def __init__(self, config, session=None):

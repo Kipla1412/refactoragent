@@ -41,10 +41,10 @@ def test_voice_intake_end_patterns_are_detected():
 
 
 def test_voice_consult_end_patterns_are_detected():
+    assert VoiceConsultAgent._is_end_of_conversation("That completes our consultation.")
     assert VoiceConsultAgent._is_end_of_conversation(
-        "I recommend an in-person evaluation to determine the cause."
+        "Please call emergency services or go to the nearest emergency department."
     )
-    assert VoiceConsultAgent._is_end_of_conversation("Please go to the emergency department.")
     assert not VoiceConsultAgent._is_end_of_conversation("When did the pain begin?")
     assert not VoiceConsultAgent._is_end_of_conversation("")
 
@@ -52,13 +52,42 @@ def test_voice_consult_end_patterns_are_detected():
 def test_end_patterns_tolerate_paraphrasing():
     # The closings must be recognised regardless of punctuation/casing variants.
     assert VoiceIntakeAgent._is_end_of_conversation("Thank you, your intake is now complete.")
-    assert VoiceIntakeAgent._is_end_of_conversation("We have completed your intake.")
+    assert VoiceIntakeAgent._is_end_of_conversation("Your intake has been completed.")
     assert VoiceIntakeAgent._is_end_of_conversation("That completes your intake!")
     assert VoiceConsultAgent._is_end_of_conversation("This concludes our consultation.")
     assert VoiceConsultAgent._is_end_of_conversation(
         "That completes our consultation. Take care."
     )
-    assert VoiceConsultAgent._is_end_of_conversation("The consultation is now complete.")
+    assert VoiceConsultAgent._is_end_of_conversation("Our consultation is now complete.")
+
+
+def test_mid_conversation_questions_do_not_end_the_call():
+    """Ordinary wording must never terminate the session.
+
+    These all previously matched: the bare infinitive "complete your intake"
+    appears in routine questions, and "in person evaluation" / "see a doctor"
+    appear in normal advice.
+    """
+    assert not VoiceIntakeAgent._is_end_of_conversation(
+        "Hello again. To help complete your intake, are you currently taking any "
+        "medications for your fever, headache, cough, or any other reason?"
+    )
+    assert not VoiceIntakeAgent._is_end_of_conversation(
+        "Before we finish, I need a few more details. Are you taking any medicines?"
+    )
+    assert not VoiceIntakeAgent._is_end_of_conversation(
+        "Since you are ending the conversation, please note that the intake is "
+        "not yet complete."
+    )
+    assert not VoiceConsultAgent._is_end_of_conversation(
+        "To complete our consultation, I need a few more details."
+    )
+    assert not VoiceConsultAgent._is_end_of_conversation(
+        "I recommend an in-person evaluation to determine the exact cause."
+    )
+    assert not VoiceConsultAgent._is_end_of_conversation(
+        "Do you see a doctor regularly for this?"
+    )
 
 
 def test_consult_prompt_instructs_a_matching_closing():
@@ -155,7 +184,7 @@ async def test_voice_consult_emits_status_end_on_closing_phrase(config):
 
     async def fake_loop():
         yield AgentEvent.text_delta(
-            "I recommend an in-person evaluation within 24 hours.",
+            "That completes our consultation. Take care.",
             agent=agent.agent_type,
         )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -67,7 +68,14 @@ async def diarized_consultation(ws: WebSocket) -> None:
             finally:
                 connection_open = False
 
-    session = await session_manager.get_session(user_id, config)
+    # Sessions are keyed by user AND session id. If the client pins a session id
+    # we reuse it (resume); otherwise this connection gets a fresh session so a
+    # restart never inherits the previous conversation's history.
+    requested_session_id = ws.query_params.get("session_id")
+    session_id = requested_session_id or str(uuid.uuid4())
+    is_ephemeral_session = requested_session_id is None
+
+    session = await session_manager.get_session(user_id, config, session_id=session_id)
     if not session.context_manager:
         await session.initialize()
 
@@ -139,6 +147,16 @@ async def diarized_consultation(ws: WebSocket) -> None:
     finally:
         if agent and agent.session and agent.session.client:
             await agent.session.client.close()
+
+        # Drop ephemeral sessions on disconnect so their context does not leak
+        # into the next session and they do not accumulate in memory. Sessions
+        # the client pinned with an explicit session_id are kept for resumption.
+        if is_ephemeral_session:
+            try:
+                await session_manager.delete_session(user_id, session_id)
+            except Exception as exc:
+                logger.debug("Ephemeral session cleanup failed: %s", exc)
+
         try:
             await safe_close()
         except Exception:

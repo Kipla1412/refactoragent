@@ -14,9 +14,14 @@ class VoiceIntakeAgent(Agent):
     # Regexes that signal the voice intake conversation is complete. Matching is
     # done against punctuation-stripped, lowercased text (see
     # `_is_end_of_conversation`), so these are written in normalized form.
+    #
+    # Only statement forms are matched. Allowing the bare infinitive ("complete
+    # your intake") made ordinary questions such as "to help complete your
+    # intake, are you taking any medications?" end the call.
     END_PATTERNS = (
-        r"intake (?:is|has been) (?:now )?complete",
-        r"complet(?:e|es|ed) (?:your|the) intake",
+        r"(?:your|the) intake is (?:now )?complete",
+        r"(?:your|the) intake has been completed",
+        r"completes (?:your|the) intake",
         r"information will be available for your doctor",
     )
 
