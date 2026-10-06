@@ -210,6 +210,7 @@ class VoiceSession:
         buffer = ""
         tts_buffer = ""
         text_buffer = ""
+        spoken_text = ""
         end_of_conversation = False
 
         async for event in self.agent.run(english_transcript):
@@ -238,6 +239,7 @@ class VoiceSession:
                             yield {"type": "text", "content": chunk_text + " "}
                         translated = await self._translate_to(text_to_speak, target_language)
                         await self.tts.send_text(translated)
+                        spoken_text = f"{spoken_text} {translated}".strip()
                 elif has_punct:
                     buffer = ""
 
@@ -251,19 +253,55 @@ class VoiceSession:
                 yield {"type": "text", "content": chunk_text}
             translated = await self._translate_to(remaining, target_language)
             await self.tts.send_text(translated)
+            spoken_text = f"{spoken_text} {translated}".strip()
 
         # Flush once at the end, then drain all remaining audio.
         await self.tts.flush()
+        produced_audio = False
         async for audio_bytes in self._drain_tts():
+            produced_audio = True
             yield {"type": "audio", "content": audio_bytes}
+
+        if not produced_audio:
+            async for audio_bytes in self._resynthesize(spoken_text):
+                yield {"type": "audio", "content": audio_bytes}
 
         # Signal the client that the conversation has ended.
         if end_of_conversation:
             yield {"type": "status", "status": "end"}
 
+    async def _resynthesize(self, text: str):
+        """Re-speak a turn that produced no audio, on a fresh connection.
+
+        Sarvam closes a synthesis session once it is finalized (or when it goes
+        idle), and a send that lands on that dead socket produces text but no
+        voice. One clean retry recovers the turn instead of leaving it silent.
+        """
+        if not text.strip():
+            return
+
+        print("[TTS] No audio was produced — reconnecting and retrying once")
+        try:
+            await self.tts.reconnect()
+            await self.tts.send_text(text)
+            await self.tts.flush()
+        except Exception as e:
+            print(f"[TTS] Retry failed: {e}")
+            return
+
+        async for audio_bytes in self._drain_tts():
+            yield audio_bytes
+
     async def text_to_audio(self, text: str):
         await self.tts.reconnect()
         await self.tts.send_text(text)
         await self.tts.flush()
+
+        produced_audio = False
         async for audio_bytes in self._drain_tts():
+            produced_audio = True
             yield audio_bytes
+
+        if not produced_audio:
+            async for audio_bytes in self._resynthesize(text):
+                yield audio_bytes

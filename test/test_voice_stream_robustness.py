@@ -29,11 +29,51 @@ class _AudioResult:
 class _ScriptedTTS:
     def __init__(self, results):
         self._results = list(results)
+        self.reconnects = 0
+        self.sent = []
+
+    async def reconnect(self):
+        self.reconnects += 1
+
+    async def send_text(self, text):
+        self.sent.append(text)
+
+    async def flush(self):
+        pass
 
     async def receive_audio(self):
         if not self._results:
             return None
         return self._results.pop(0)
+
+
+class _SilentThenWorksTTS:
+    """First synthesis produces no audio; the retry produces some."""
+
+    def __init__(self):
+        self.reconnects = 0
+        self.sent = []
+        self._step = 0
+
+    async def reconnect(self):
+        self.reconnects += 1
+
+    async def send_text(self, text):
+        self.sent.append(text)
+
+    async def flush(self):
+        pass
+
+    async def receive_audio(self):
+        self._step += 1
+        if self._step == 1:
+            # Attempt 1 ends immediately with no audio at all.
+            return _Event(type="event", data=SimpleNamespace(event_type="final"))
+        if self._step == 2:
+            return _AudioResult(base64.b64encode(b"RETRY-AUDIO").decode())
+        if self._step == 3:
+            return _Event(type="event", data=SimpleNamespace(event_type="final"))
+        return None
 
 
 class _StallingTTS:
@@ -109,3 +149,40 @@ def test_drop_unanswered_user_message_keeps_an_answered_turn():
 def test_drop_unanswered_user_message_tolerates_missing_state():
     _drop_unanswered_user_message(SimpleNamespace())
     _drop_unanswered_user_message(None)
+
+
+@pytest.mark.asyncio
+async def test_text_to_audio_retries_once_when_no_audio_is_produced():
+    tts = _SilentThenWorksTTS()
+    session = VoiceSession(agent=None, tts=tts)
+
+    chunks = await _collect(session.text_to_audio("Hello there"))
+
+    assert chunks == [b"RETRY-AUDIO"]
+    assert tts.reconnects == 2                    # initial connect + retry
+    assert tts.sent == ["Hello there", "Hello there"]
+
+
+@pytest.mark.asyncio
+async def test_text_to_audio_does_not_retry_when_audio_is_produced():
+    tts = _ScriptedTTS([
+        _AudioResult(base64.b64encode(b"PCM").decode()),
+        _Event(type="event", data=SimpleNamespace(event_type="final")),
+    ])
+    session = VoiceSession(agent=None, tts=tts)
+
+    chunks = await _collect(session.text_to_audio("Hello"))
+
+    assert chunks == [b"PCM"]
+    assert tts.reconnects == 1
+
+
+@pytest.mark.asyncio
+async def test_resynthesize_does_nothing_for_blank_text():
+    tts = _SilentThenWorksTTS()
+    session = VoiceSession(agent=None, tts=tts)
+
+    chunks = await _collect(session._resynthesize("   "))
+
+    assert chunks == []
+    assert tts.reconnects == 0
