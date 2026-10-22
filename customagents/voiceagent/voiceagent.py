@@ -198,11 +198,20 @@ class VoiceSession:
     ):
         print(f"[PROCESS] target_language={target_language} source_language={source_language} transcript='{transcript[:50]}...'")
 
-        # Every turn needs a fresh connection: Sarvam finalizes the synthesis
-        # session after a flush+drain, so a reused socket produces no audio.
-        # Opened up front so the handshake hides behind the LLM turn instead of
-        # delaying the first chunk of speech.
-        await self.tts.reconnect()
+        # Sarvam closes a synthesis session that sits idle, and the LLM turn
+        # routinely lasts long enough for that to happen — the log shows the
+        # socket dying between "TTS Connected" and the first chunk. So the
+        # socket is opened *lazily*, on the first chunk of speech, which
+        # guarantees it is alive when the text is sent. Because the turn is
+        # flushed once at the end, this connect overlaps with the rest of the
+        # LLM stream rather than delaying the audio.
+        tts_started = False
+
+        async def ensure_tts_started():
+            nonlocal tts_started
+            if not tts_started:
+                tts_started = True
+                await self.tts.reconnect()
 
         # Normalize user input to English before it reaches the Core Agent.
         english_transcript = await self._translate_to_english(transcript, source_language)
@@ -237,6 +246,7 @@ class VoiceSession:
                     if text_to_speak:
                         if chunk_text:
                             yield {"type": "text", "content": chunk_text + " "}
+                        await ensure_tts_started()
                         translated = await self._translate_to(text_to_speak, target_language)
                         await self.tts.send_text(translated)
                         spoken_text = f"{spoken_text} {translated}".strip()
@@ -251,16 +261,18 @@ class VoiceSession:
             chunk_text = text_buffer.strip()
             if chunk_text:
                 yield {"type": "text", "content": chunk_text}
+            await ensure_tts_started()
             translated = await self._translate_to(remaining, target_language)
             await self.tts.send_text(translated)
             spoken_text = f"{spoken_text} {translated}".strip()
 
-        # Flush once at the end, then drain all remaining audio.
-        await self.tts.flush()
         produced_audio = False
-        async for audio_bytes in self._drain_tts():
-            produced_audio = True
-            yield {"type": "audio", "content": audio_bytes}
+        if tts_started:
+            # Flush once at the end, then drain all remaining audio.
+            await self.tts.flush()
+            async for audio_bytes in self._drain_tts():
+                produced_audio = True
+                yield {"type": "audio", "content": audio_bytes}
 
         if not produced_audio:
             async for audio_bytes in self._resynthesize(spoken_text):

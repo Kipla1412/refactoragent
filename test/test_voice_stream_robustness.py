@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.events import AgentEvent, AgentType
 from customagents.voiceagent.voiceagent import (
     VoiceSession,
     _drop_unanswered_user_message,
@@ -186,3 +187,48 @@ async def test_resynthesize_does_nothing_for_blank_text():
 
     assert chunks == []
     assert tts.reconnects == 0
+
+
+class _TextAgent:
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    async def run(self, transcript):
+        for chunk in self._chunks:
+            yield AgentEvent.text_delta(chunk, AgentType.VOICE_INTAKE)
+
+
+@pytest.mark.asyncio
+async def test_tts_socket_is_not_opened_when_the_agent_says_nothing():
+    """An idle socket is what Sarvam hangs up on, so don't open one for nothing."""
+    tts = _ScriptedTTS([])
+    session = VoiceSession(agent=_TextAgent([]), tts=tts)
+
+    frames = await _collect(
+        session.process_transcript_to_audio(
+            "hello", target_language="en-IN", source_language="en-IN"
+        )
+    )
+
+    assert tts.reconnects == 0
+    assert frames == []
+
+
+@pytest.mark.asyncio
+async def test_tts_socket_opens_lazily_on_the_first_chunk():
+    tts = _ScriptedTTS([
+        _AudioResult(base64.b64encode(b"PCM").decode()),
+        _Event(type="event", data=SimpleNamespace(event_type="final")),
+    ])
+    session = VoiceSession(
+        agent=_TextAgent(["Hello there, how are you today? "]), tts=tts
+    )
+
+    frames = await _collect(
+        session.process_transcript_to_audio(
+            "hi", target_language="en-IN", source_language="en-IN"
+        )
+    )
+
+    assert tts.reconnects == 1
+    assert any(frame.get("type") == "audio" for frame in frames)

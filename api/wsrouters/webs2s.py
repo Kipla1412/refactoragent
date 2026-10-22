@@ -329,6 +329,11 @@ async def _voice_stream(ws: WebSocket, agent_type: str):
 
                     if active_response_task and not active_response_task.done():
                         print("Interrupting active speaking block for new phrase...")
+                        # Tell the client to drop the audio it has already
+                        # buffered: cancelling the server task stops future
+                        # chunks, but the browser keeps playing everything it
+                        # has queued — so the old reply would finish first.
+                        await safe_send_json({"type": "status", "status": "interrupted"})
                         active_response_task.cancel()
                         try:
                             await active_response_task
